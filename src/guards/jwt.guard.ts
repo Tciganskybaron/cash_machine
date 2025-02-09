@@ -15,13 +15,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 			context.getHandler(),
 			context.getClass(),
 		]);
-
+		console.log('isPublic', isPublic);
 		if (isPublic) {
 			return true; // If it's public, bypass the Guard
 		}
 
 		// Checking the validity of the token
 		const isAuthorized = (await super.canActivate(context)) as boolean;
+		console.log('isAuthorized', isAuthorized);
 		if (!isAuthorized) {
 			throw new UnauthorizedException('Invalid token');
 		}

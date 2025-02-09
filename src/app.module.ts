@@ -7,6 +7,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { getMongoConfig } from 'src/configs/mongo.config';
 import { TelegramModule } from './telegram/telegram.module';
 import { getTelegramConfig } from './configs/telegram.config';
+import { CoinMarketCapModule } from './coinMarketCap/coinMarketCap.module';
+import { getCoinMarketCapConfig } from './configs/getCoinMarketCapConfig.config';
+import { CoinModule } from './coin/coin.module';
 
 @Module({
 	imports: [
@@ -22,6 +25,12 @@ import { getTelegramConfig } from './configs/telegram.config';
 			inject: [ConfigService],
 			useFactory: getTelegramConfig,
 		}),
+		CoinMarketCapModule.forRootAsync({
+			imports: [ConfigModule],
+			inject: [ConfigService],
+			useFactory: getCoinMarketCapConfig,
+		}),
+		CoinModule,
 	],
 	controllers: [AppController],
 	providers: [AppService],
