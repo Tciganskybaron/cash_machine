@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CoinMarketCapService } from 'src/coinMarketCap/coinMarketCap.service';
 import { Coin } from './model/coin.model';
@@ -14,6 +15,7 @@ export class CoinService {
 	constructor(
 		@InjectModel(Coin.name) private coinModel: Model<Coin>,
 		private readonly coinMarketCapService: CoinMarketCapService,
+		private readonly eventEmitter: EventEmitter2,
 	) {}
 
 	async addCoin(coinDto: CoinDto): Promise<Coin> {
@@ -36,7 +38,15 @@ export class CoinService {
 		return this.coinModel.findOne({ ucid });
 	}
 
-	@Cron(CronExpression.EVERY_30_SECONDS)
+	async getTradingCoins(): Promise<Coin[]> {
+		return this.coinModel.find({ isTrading: true });
+	}
+
+	async setCoinIsTading(ucid: string): Promise<Coin | null> {
+		return this.coinModel.findOneAndUpdate({ ucid }, { isTrading: true });
+	}
+
+	@Cron(CronExpression.EVERY_30_MINUTES)
 	async updateCoinPrices(): Promise<void> {
 		this.logger.log('Updating coin prices...');
 
@@ -49,18 +59,20 @@ export class CoinService {
 
 		const prices = await this.coinMarketCapService.fetchPricesByUCID(ucids);
 
+		let pricesUpdated = false;
+
 		for (const coin of coins) {
 			const newPrice = prices[coin.ucid];
 
 			if (newPrice !== null && newPrice !== undefined) {
-				await this.coinModel.updateOne(
-					{ _id: coin._id },
-					{ price: newPrice, lastUpdated: new Date() },
-				);
+				await this.coinModel.updateOne({ _id: coin._id }, { price: newPrice });
+				pricesUpdated = true;
 				this.logger.log(`Updated ${coin.symbol}: $${newPrice}`);
 			} else {
 				this.logger.warn(`Price for ${coin.symbol} is missing, skipping update.`);
 			}
 		}
+
+		if (pricesUpdated) this.eventEmitter.emit('coin.pricesUpdated');
 	}
 }

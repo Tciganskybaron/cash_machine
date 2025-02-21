@@ -8,7 +8,7 @@ export type CoinDocument = HydratedDocument<Coin>;
 export class Coin {
 	_id?: MSchema.Types.ObjectId;
 
-	@Prop({ required: true, unique: true })
+	@Prop({ required: true, unique: true, index: true })
 	ucid: string; // Уникальный ID монеты в CoinMarketCap
 
 	@Prop({ required: true })
@@ -18,9 +18,9 @@ export class Coin {
 	name: string; // Название (Bitcoin, Ethereum)
 
 	@Prop({ required: true })
-	decimals: number; // количество нулей послу запятой
+	decimals: number; // количество нулей после запятой
 
-	@Prop({ required: true })
+	@Prop({ required: true, index: true })
 	isTrading: boolean; // Включена торговля
 
 	@Prop()

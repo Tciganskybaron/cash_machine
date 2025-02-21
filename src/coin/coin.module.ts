@@ -14,5 +14,6 @@ import { Coin, CoinSchema } from './model/coin.model';
 	],
 	controllers: [CoinController],
 	providers: [CoinService],
+	exports: [CoinService],
 })
 export class CoinModule {}
