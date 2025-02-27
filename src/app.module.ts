@@ -13,6 +13,8 @@ import { getCoinMarketCapConfig } from './configs/getCoinMarketCapConfig.config'
 import { CoinModule } from './coin/coin.module';
 import { StrategyModule } from './strategy/strategy.module';
 import { TradingModule } from './trading/trading.module';
+import { OneInchModule } from './1inch/1inch.module';
+import { get1InchConfig } from './configs/1inch.config';
 
 @Module({
 	imports: [
@@ -32,6 +34,11 @@ import { TradingModule } from './trading/trading.module';
 			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: getCoinMarketCapConfig,
+		}),
+		OneInchModule.forRootAsync({
+			imports: [ConfigModule],
+			inject: [ConfigService],
+			useFactory: get1InchConfig,
 		}),
 		EventEmitterModule.forRoot(),
 		CoinModule,
