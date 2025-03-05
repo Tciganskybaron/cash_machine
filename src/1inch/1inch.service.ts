@@ -234,10 +234,17 @@ export class OneInchService {
 		chainId: string | number,
 	): Promise<{ txHash: `0x${string}`; status: 'success' | 'reverted' }> {
 		try {
+			await this.approveToken({ amount: params.amount, tokenAddress: params.src }, chainId);
+
 			const url = this.apiRequestUrl(chainId, '/swap');
+
 			const response = await axios.get(url, {
 				...this.axiosConfig,
-				params,
+				params: {
+					...params,
+					from: this.account.address,
+					origin: this.account.address,
+				},
 			});
 
 			const { data, to, value } = response.data.tx;

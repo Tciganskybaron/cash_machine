@@ -1,4 +1,15 @@
-import { IsBoolean, IsDefined, IsNumber, IsString } from 'class-validator';
+import { IsBoolean, IsDefined, IsNumber, IsString, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ChainAddressDto {
+	@IsDefined()
+	@IsNumber()
+	chain_id: number; // ID блокчейна
+
+	@IsDefined()
+	@IsString()
+	address: string; // Адрес контракта токена
+}
 
 export class CoinDto {
 	@IsDefined()
@@ -20,4 +31,10 @@ export class CoinDto {
 	@IsDefined()
 	@IsBoolean()
 	isTrading: boolean;
+
+	@IsDefined()
+	@IsArray()
+	@ValidateNested({ each: true })
+	@Type(() => ChainAddressDto)
+	chain_addresses: ChainAddressDto[];
 }

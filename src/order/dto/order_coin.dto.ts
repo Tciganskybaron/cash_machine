@@ -1,11 +1,11 @@
 import { IsDefined, IsString } from 'class-validator';
 
-export class TradingOrderDto {
+export class OrderCoinDto {
 	@IsDefined()
 	@IsString()
 	ucid: string;
 
 	@IsDefined()
 	@IsString()
-	totalAmount: string;
+	price: number;
 }

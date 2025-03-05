@@ -18,8 +18,8 @@ export interface ISwapTokensParams {
 	src: Address;
 	dst: Address;
 	amount: string | bigint;
-	from: Address;
-	origin: Address;
+	from?: Address;
+	origin?: Address;
 	slippage: number;
 	fee?: string | bigint;
 	gasPrice?: string | bigint;

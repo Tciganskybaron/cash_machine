@@ -5,7 +5,6 @@ import { Strategy, StrategySchema } from './model/strategy.model';
 import { StrategyController } from './strategy.controller';
 import { Coin, CoinSchema } from 'src/coin/model/coin.model';
 import { CoinModule } from 'src/coin/coin.module';
-import { CoinService } from 'src/coin/coin.service';
 
 @Module({
 	imports: [
@@ -15,7 +14,7 @@ import { CoinService } from 'src/coin/coin.service';
 		]),
 		CoinModule,
 	],
-	providers: [StrategyService, CoinService],
+	providers: [StrategyService],
 	controllers: [StrategyController],
 	exports: [StrategyService],
 })

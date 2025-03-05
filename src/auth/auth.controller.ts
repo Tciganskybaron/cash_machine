@@ -1,5 +1,5 @@
 import {
-	BadRequestException,
+	// BadRequestException,
 	Body,
 	Controller,
 	HttpCode,
@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { AuthDto } from './dto/auth.dto';
 import { AuthService } from './auth.service';
-import { ALREADY_REGISTERED_ERROR } from './constants/auth.constants';
+// import { ALREADY_REGISTERED_ERROR } from './constants/auth.constants';
 import { TelegramService } from 'src/telegram/telegram.service';
 import { Public } from 'src/decorators/public.decorator';
 

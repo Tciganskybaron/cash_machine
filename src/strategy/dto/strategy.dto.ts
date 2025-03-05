@@ -1,23 +1,27 @@
-import { IsDefined, IsString } from 'class-validator';
+import { IsDefined, IsNumber, IsString } from 'class-validator';
 
 export class StrategyDto {
 	@IsDefined()
 	@IsString()
-	ucid: string;
+	ucid: string; // Id токена в CoinMarketCup
+
+	@IsDefined()
+	@IsNumber()
+	chain_id: number; // ID блокчейна
 
 	@IsDefined()
 	@IsString()
-	totalTokens: string;
+	totalTokens: string; // Сколько выделено токенов на торговлю
 
 	@IsDefined()
 	@IsString()
-	maxSellPrice: string;
+	maxSellPrice: string; // // Максимальная цена продажи
 
 	@IsDefined()
 	@IsString()
-	currentPrice: string;
+	currentPrice: string; // Текущая цена
 
 	@IsDefined()
 	@IsString()
-	gridCount: string;
+	gridCount: string; // Количество сеток
 }
