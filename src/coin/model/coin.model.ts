@@ -4,6 +4,17 @@ import { HydratedDocument } from 'mongoose';
 
 export type CoinDocument = HydratedDocument<Coin>;
 
+@Schema({ _id: false })
+export class ChainAddress {
+	@Prop({ type: Number, required: true })
+	chain_id: number; // id блокчейна
+
+	@Prop({ type: String, required: true })
+	address: string; // адрес контракта токена
+}
+
+const ChainAddressSchema = SchemaFactory.createForClass(ChainAddress);
+
 @Schema({ timestamps: true, collection: 'coin' })
 export class Coin {
 	_id?: MSchema.Types.ObjectId;
@@ -26,8 +37,8 @@ export class Coin {
 	@Prop()
 	price: number; // Последняя цена
 
-	@Prop()
-	lastUpdated: Date; // Дата последнего обновления
+	@Prop({ type: [ChainAddressSchema], required: true })
+	chain_addresses: ChainAddress[]; // cписок адресов токена в разных блокчейнах
 }
 
 export const CoinSchema = SchemaFactory.createForClass(Coin);

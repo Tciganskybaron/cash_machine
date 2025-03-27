@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -10,8 +10,6 @@ import { CoinDto } from './dto/coin.dto';
 
 @Injectable()
 export class CoinService {
-	private readonly logger = new Logger(CoinService.name);
-
 	constructor(
 		@InjectModel(Coin.name) private coinModel: Model<Coin>,
 		private readonly coinMarketCapService: CoinMarketCapService,
@@ -26,7 +24,7 @@ export class CoinService {
 
 		const newCoin = new this.coinModel(coinDto);
 		await newCoin.save();
-		this.logger.log(`Coin ${coinDto.symbol} added`);
+
 		return newCoin;
 	}
 
@@ -48,31 +46,41 @@ export class CoinService {
 
 	@Cron(CronExpression.EVERY_30_MINUTES)
 	async updateCoinPrices(): Promise<void> {
-		this.logger.log('Updating coin prices...');
+		try {
+			const coins = await this.coinModel.find({ isTrading: true });
+			const ucids = coins.map((coin) => coin.ucid);
 
-		const coins = await this.coinModel.find({ isTrading: true });
-		const ucids = coins.map((coin) => coin.ucid);
-		if (!ucids.length) {
-			this.logger.log('No coins found in database with isTrading = true.');
-			return;
-		}
-
-		const prices = await this.coinMarketCapService.fetchPricesByUCID(ucids);
-
-		let pricesUpdated = false;
-
-		for (const coin of coins) {
-			const newPrice = prices[coin.ucid];
-
-			if (newPrice !== null && newPrice !== undefined) {
-				await this.coinModel.updateOne({ _id: coin._id }, { price: newPrice });
-				pricesUpdated = true;
-				this.logger.log(`Updated ${coin.symbol}: $${newPrice}`);
-			} else {
-				this.logger.warn(`Price for ${coin.symbol} is missing, skipping update.`);
+			if (!ucids.length) {
+				return;
 			}
-		}
 
-		if (pricesUpdated) this.eventEmitter.emit('coin.pricesUpdated');
+			const prices = await this.coinMarketCapService.fetchPricesByUCID(ucids);
+
+			let pricesUpdated = false;
+			for (const coin of coins) {
+				const newPrice = prices[coin.ucid];
+				if (newPrice !== null && newPrice !== undefined) {
+					await this.coinModel.updateOne({ _id: coin._id }, { price: newPrice });
+					pricesUpdated = true;
+				}
+			}
+
+			if (pricesUpdated) {
+				this.eventEmitter.emit('coin.pricesUpdated');
+			}
+		} catch (error: unknown) {
+			if (error instanceof HttpException) {
+				// Если это HttpException, пробрасываем дальше
+				throw error;
+			}
+
+			if (error instanceof Error) {
+				// Если это обычный Error, выбрасываем InternalServerErrorException
+				throw new InternalServerErrorException(`Error updating coin prices: ${error.message}`);
+			}
+
+			// приводим к строке и выбрасываем
+			throw new InternalServerErrorException(`Error updating coin prices: ${String(error)}`);
+		}
 	}
 }

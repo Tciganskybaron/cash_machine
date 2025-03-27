@@ -12,31 +12,40 @@ import { CoinMarketCapModule } from './coinMarketCap/coinMarketCap.module';
 import { getCoinMarketCapConfig } from './configs/getCoinMarketCapConfig.config';
 import { CoinModule } from './coin/coin.module';
 import { StrategyModule } from './strategy/strategy.module';
-import { TradingModule } from './trading/trading.module';
+import { OrderModule } from './order/order.module';
+import { OneInchModule } from './1inch/1inch.module';
+import { get1InchConfig } from './configs/1inch.config';
+import { ViemModule } from './viem/viem.module';
+import { getViemConfig } from './configs/viem.config';
 
 @Module({
 	imports: [
+		ConfigModule.forRoot({ isGlobal: true }),
 		MongooseModule.forRootAsync({
-			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: getMongoConfig,
 		}),
-		AuthModule,
-		ConfigModule.forRoot(),
 		TelegramModule.forRootAsync({
-			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: getTelegramConfig,
 		}),
 		CoinMarketCapModule.forRootAsync({
-			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: getCoinMarketCapConfig,
 		}),
+		OneInchModule.forRootAsync({
+			inject: [ConfigService],
+			useFactory: get1InchConfig,
+		}),
+		ViemModule.forRootAsync({
+			inject: [ConfigService],
+			useFactory: getViemConfig,
+		}),
 		EventEmitterModule.forRoot(),
+		AuthModule,
 		CoinModule,
 		StrategyModule,
-		TradingModule,
+		OrderModule,
 	],
 	controllers: [AppController],
 	providers: [AppService],
