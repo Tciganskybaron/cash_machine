@@ -3,7 +3,11 @@ import { IsDefined, IsNumber, IsString } from 'class-validator';
 export class StrategyDto {
 	@IsDefined()
 	@IsString()
-	ucid: string; // Id токена в CoinMarketCup
+	base_coin_ucid: string; // Id токена в CoinMarketCup, основной монеты
+
+	@IsDefined()
+	@IsString()
+	quote_сoin_ucid: string; // Id токена в CoinMarketCup, в которой будет выражена цена
 
 	@IsDefined()
 	@IsNumber()

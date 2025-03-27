@@ -1,38 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ONEINCH_MODULE_OPTIONS } from './constants/1inch.constants';
 import { I1InchOptions } from './types/1inch.interface';
-import {
-	createPublicClient,
-	createWalletClient,
-	PublicClient,
-	WalletClient,
-	http,
-	Transport,
-	formatEther,
-	parseEther,
-} from 'viem';
-import { base } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { IRequestError, IQuoteResponse, TransactionData } from './types/1inch.responce';
+import {
+	IRequestError,
+	IQuoteResponse,
+	TransactionData,
+	ISwapResponse,
+} from './types/1inch.responce';
 import {
 	IApproveTokenParams,
 	IBestQuoteForSwapParams,
-	ISendEthParams,
-	ISendTransactionParams,
 	ISwapTokensParams,
 } from './types/1inch.params';
+import { Address } from 'viem';
 
 @Injectable()
 export class OneInchService {
-	private publicClient: PublicClient<Transport, typeof base>;
-	private walletClient: WalletClient<Transport, typeof base>;
-	private account: ReturnType<typeof privateKeyToAccount>;
 	private api1InchBaseUrl: string;
 	private axiosConfig: AxiosRequestConfig;
 
 	constructor(@Inject(ONEINCH_MODULE_OPTIONS) options: I1InchOptions) {
-		let privateKey = options.privateKey;
 		this.api1InchBaseUrl = options.api1InchBaseUrl;
 		this.axiosConfig = {
 			headers: {
@@ -43,92 +31,16 @@ export class OneInchService {
 				indexes: null,
 			},
 		};
-
-		if (!privateKey.startsWith('0x')) {
-			privateKey = '0x' + privateKey;
-		}
-
-		this.account = privateKeyToAccount(privateKey as `0x${string}`);
-
-		this.publicClient = createPublicClient({
-			chain: base,
-			transport: http(),
-		});
-
-		this.walletClient = createWalletClient({
-			chain: base,
-			transport: http(),
-			account: this.account,
-		});
-	}
-
-	async getBalance(address: `0x${string}`) {
-		const balance = await this.publicClient.getBalance({ address });
-		return formatEther(balance);
 	}
 
 	apiRequestUrl = (chainId: string | number, methodName: string) => {
 		return `${this.api1InchBaseUrl}${chainId}${methodName}`;
 	};
 
-	async sendEth(params: ISendEthParams) {
-		try {
-			const { amount, recipient } = params;
-
-			// Подготовка транзакции с объектом account
-			const request = await this.walletClient.prepareTransactionRequest({
-				account: this.account,
-				to: recipient,
-				value: parseEther(amount),
-			});
-
-			// Подписание транзакции
-			const serializedTransaction = await this.walletClient.signTransaction({
-				...request,
-				account: this.account,
-			});
-
-			//Отправка транзакции
-			const hash = await this.walletClient.sendRawTransaction({
-				serializedTransaction,
-			});
-
-			return hash;
-		} catch (error) {
-			throw new Error(`🚨 Ошибка при отправке Ether : ${error}`);
-		}
-	}
-
-	async sendTransaction(
-		params: ISendTransactionParams,
-	): Promise<{ txHash: `0x${string}`; status: 'success' | 'reverted' }> {
-		try {
-			const gasPrice = await this.publicClient.getGasPrice();
-
-			const { to, data, value } = params;
-
-			const txHash = await this.walletClient.sendTransaction({
-				to,
-				data,
-				value: BigInt(value || '0'),
-				gasPrice,
-				account: this.account,
-			});
-
-			const receipt = await this.publicClient.waitForTransactionReceipt({ hash: txHash });
-			if (receipt.status === 'reverted') {
-				console.log(`❌ Ошибка при выполнении sendTransaction! Статус: ${receipt.status}`);
-			}
-			return { txHash, status: receipt.status };
-		} catch (error) {
-			throw new Error(`🚨 Ошибка при выполнеии sendTransaction : ${error}`);
-		}
-	}
-
 	async approveToken(
 		params: IApproveTokenParams,
 		chainId: string | number,
-	): Promise<{ txHash: `0x${string}`; status: 'success' | 'reverted' }> {
+	): Promise<TransactionData> {
 		try {
 			const url = this.apiRequestUrl(chainId, '/approve/transaction');
 
@@ -137,14 +49,14 @@ export class OneInchService {
 				params,
 			});
 
-			const { data, to, value } = response.data;
-
-			return await this.sendTransaction({
-				to: to,
-				data: data,
-				value: value,
-			});
+			return response.data;
 		} catch (error) {
+			if (axios.isAxiosError(error) && error.response) {
+				const errorData: IRequestError = error.response.data;
+				throw new Error(
+					`1inch API Error: ${errorData.description} (Status: ${errorData.statusCode})`,
+				);
+			}
 			throw new Error(`🚨 Ошибка при одобрении токенов: ${error}`);
 		}
 	}
@@ -224,6 +136,7 @@ export class OneInchService {
 	 * @param {boolean} [params.disableEstimate] - Отключить проверку расчетов (по умолчанию false)
 	 * @param {boolean} [params.usePermit2] - Использовать Permit2 для одобрения (по умолчанию false)
 	 * @param {number | string} chainId - ID сети
+	 * @param {Address} accountAddress - Адрес кошелька подписывающего и получающего токены
 	 *
 	 * @returns {ISwapResponse} Объект с данными для выполнения транзакции.
 	 *
@@ -232,29 +145,29 @@ export class OneInchService {
 	async swapTokens(
 		params: ISwapTokensParams,
 		chainId: string | number,
-	): Promise<{ txHash: `0x${string}`; status: 'success' | 'reverted' }> {
+		accountAddress: Address,
+	): Promise<ISwapResponse> {
 		try {
-			await this.approveToken({ amount: params.amount, tokenAddress: params.src }, chainId);
-
 			const url = this.apiRequestUrl(chainId, '/swap');
 
-			const response = await axios.get(url, {
+			const response = await axios.get<ISwapResponse>(url, {
 				...this.axiosConfig,
 				params: {
 					...params,
-					from: this.account.address,
-					origin: this.account.address,
+					from: accountAddress,
+					origin: accountAddress,
+					includeTokensInfo: true,
 				},
 			});
 
-			const { data, to, value } = response.data.tx;
-
-			return await this.sendTransaction({
-				to: to,
-				data: data,
-				value: value,
-			});
+			return response.data;
 		} catch (error) {
+			if (axios.isAxiosError(error) && error.response) {
+				const errorData: IRequestError = error.response.data;
+				throw new Error(
+					`1inch API Error: ${errorData.description} (Status: ${errorData.statusCode})`,
+				);
+			}
 			throw new Error(`🚨 Ошибка при обмене токенов: ${error}`);
 		}
 	}

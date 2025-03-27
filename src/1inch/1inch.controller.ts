@@ -1,15 +1,10 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { OneInchService } from './1inch.service';
 import { Public } from 'src/decorators/public.decorator';
 
 @Controller('1inch')
 export class OneInchController {
 	constructor(private readonly oneInchService: OneInchService) {}
-
-	@Get('getBalance/:address')
-	async getBalance(@Param('address') address: `0x${string}`) {
-		return this.oneInchService.getBalance(address);
-	}
 
 	@Public()
 	@Get('swapQuote')

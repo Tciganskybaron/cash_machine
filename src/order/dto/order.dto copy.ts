@@ -12,7 +12,11 @@ export class OrderDto {
 
 	@IsDefined()
 	@IsString()
-	total_amount: string;
+	dst: string;
+
+	@IsDefined()
+	@IsString()
+	amount: string;
 
 	@IsDefined()
 	@IsString()

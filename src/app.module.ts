@@ -15,15 +15,16 @@ import { StrategyModule } from './strategy/strategy.module';
 import { OrderModule } from './order/order.module';
 import { OneInchModule } from './1inch/1inch.module';
 import { get1InchConfig } from './configs/1inch.config';
+import { ViemModule } from './viem/viem.module';
+import { getViemConfig } from './configs/viem.config';
 
 @Module({
 	imports: [
+		ConfigModule.forRoot({ isGlobal: true }),
 		MongooseModule.forRootAsync({
 			inject: [ConfigService],
 			useFactory: getMongoConfig,
 		}),
-		AuthModule,
-		ConfigModule.forRoot({ isGlobal: true }),
 		TelegramModule.forRootAsync({
 			inject: [ConfigService],
 			useFactory: getTelegramConfig,
@@ -36,7 +37,12 @@ import { get1InchConfig } from './configs/1inch.config';
 			inject: [ConfigService],
 			useFactory: get1InchConfig,
 		}),
+		ViemModule.forRootAsync({
+			inject: [ConfigService],
+			useFactory: getViemConfig,
+		}),
 		EventEmitterModule.forRoot(),
+		AuthModule,
 		CoinModule,
 		StrategyModule,
 		OrderModule,

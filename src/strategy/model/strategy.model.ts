@@ -31,7 +31,10 @@ export class Strategy {
 	_id?: MSchema.Types.ObjectId;
 
 	@Prop({ type: MSchema.Types.ObjectId, ref: 'Coin', required: true, unique: true, index: true })
-	coin: Coin; // Монета для торговли
+	base_coin: Coin; // Монета для торговли
+
+	@Prop({ type: MSchema.Types.ObjectId, ref: 'Coin', required: true, index: true })
+	quote_сoin: Coin; // Монета в которой будет выражена цена
 
 	@Prop({ required: true })
 	chain_id: number; // ID Блокчейна

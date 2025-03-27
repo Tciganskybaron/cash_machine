@@ -9,6 +9,13 @@ export interface TransactionData {
 	gas: number;
 }
 
+export interface IApproveCallDataResponse {
+	to: Address;
+	value: string;
+	data: Address;
+	gasPrice: string;
+}
+
 interface ITokenInfo {
 	address: Address; // Адрес контракта токена
 	symbol: string; // Символ токена (например, "ETH")
