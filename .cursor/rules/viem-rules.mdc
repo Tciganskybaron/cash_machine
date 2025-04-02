@@ -1,0 +1,6777 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Getting Started
+Get started with viem in just a few lines of code.
+Overview
+viem is a TypeScript interface for Ethereum that provides low-level stateless primitives for interacting with Ethereum. viem is focused on developer experience, stability, bundle size, and performance:
+
+Developer experience Automatic type safety and inference, comprehensive documentation, composable APIs.
+Stability Test suite runs against forked Ethereum networks, complete test coverage.
+Bundle size Tree-shakable lightweight modules.
+Performance Optimized encoding/parsing, async tasks only when necessary.
+You can learn more about the rationale behind the project in the Why viem section.
+
+Installation
+npm
+pnpm
+bun
+
+```bash
+npm i viem
+```
+
+Quick Start
+1. Set up your Client & Transport
+Firstly, set up your Client with a desired Transport & Chain.
+
+```javascript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createPublicClient({ 
+  chain: mainnet, 
+  transport: http(), 
+})
+```
+In a production app, it is highly recommended to pass through your authenticated RPC provider URL (Infura, thirdweb, etc). If no URL is provided, viem will default to a public RPC provider. Read more.
+
+2. Consume Actions
+Now that you have a Client set up, you can now interact with Ethereum and consume Actions!
+
+```javascript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createPublicClient({
+  chain: mainnet,
+  transport: http(),
+})
+ 
+const blockNumber = await client.getBlockNumber() 
+```
+
+Frequently Asked Questions
+Frequently asked questions related to viem.
+
+TL;DR: viem tries to avoid creating unnecessary abstractions on top of existing systems.
+Feel free to add to this document if you notice frequently asked questions that are not covered here.
+
+Why use the terms "Wallet" & "Account" instead of "Signer"
+viem attempts to align to the "Wallet" and "Account" terminology on Ethereum.org. The term "Signer" was adapted from ethers.js.
+
+Let's clear up on some terms before we dive in.
+
+Wallet: An application or interface that holds Account(s).
+Account: An object that represents an address, balance, nonce, and optional storage and code.
+Private Key: Proves ownership of an Account, and can sign messages & transactions.
+In the context of viem, a Wallet Client is an interface that can hold an Account. The Account may or may not hold a Private Key.
+
+In viem, there are two types of Accounts:
+
+Local Account: can synchronously & directly sign messages and transactions using its Private Key. A signature is guaranteed.
+JSON-RPC Account: asynchronously requests signing of messages and transactions from the target Wallet over JSON-RPC (e.g. Browser Extension or WalletConnect). The target Wallet holds the Account & Private Key. A signature is not guaranteed (the target Wallet may not have permitted the Account, or the Wallet may have rejected the request).
+We do not use the term "Signer" because there are noticeable behavioral differences between signing locally and signing over JSON-RPC.
+
+Why are contract function args with fully-named inputs represented as unnamed tuple types instead of object types?
+Let's look at an example! Suppose I have the following function in my contract:
+
+
+function transferFrom(address sender, address recipient, uint256 amount) returns (bool)
+All the inputs are named (sender, recipient, and amount) so I might be tempted to represent the parameters as the following TypeScript type:
+
+```javascript
+type Args = {
+  sender: `0x${string}`;
+  recipient: `0x${string}`;
+  amount: bigint;
+}
+```
+This improves developer experience a bit because now I can see the names of the parameters in my editor.
+
+```javascript
+import { createWalletClient, parseAbi } from 'viem'
+ 
+const client = createWalletClient(…)
+client.writeContract({
+  address: '0x…',
+  abi: parseAbi([
+    'function transferFrom(address sender, address recipient, uint256 amount) returns (bool)',
+  ]),
+  functionName: 'transferFrom',
+  args: {
+    sender: '0x…',
+    recipient: '0x…',
+    amount: 100n,
+  },
+})
+```
+
+However, this only works if all the inputs are named (some compilers will strip names from inputs). If any of the inputs are unnamed, then you'll have to use a tuple instead:
+
+```javascript
+client.writeContract({
+  address: '0x…',
+  abi: parseAbi([
+    'function transferFrom(address, address, uint256) returns (bool)',
+  ]),
+  functionName: 'transferFrom',
+  args: ['0x…', '0x…', 100n],
+})
+This can get even more complicated when a function has overloads:
+```
+
+
+function safeTransferFrom(address, address, uint256) {}
+function safeTransferFrom(address from, address to, uint256 tokenId, bytes data) {}
+In this case, the type of the overload parameters start to diverge from each other:
+
+```javascript
+type Args =
+  | [`0x${string}`, `0x${string}`, bigint]
+  | {
+      from: `0x${string}`;
+      to: `0x${string}`;
+      tokenId: bigint;
+      data: string;
+    }
+```
+If you want to switch between the two overloads in your code, you'll need to completely change the type instead of just adding or removing a single positional argument from the end. (Objects also don't enforce type-level ordering so you can put them in whatever order you want. This would also mean that viem would also need to internally validate order during runtime, adding some extra overhead.)
+
+```javascript
+client.writeContract({
+  address: '0x…',
+  abi: parseAbi([
+    'function safeTransferFrom(address, address, uint256)',
+    'function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)',
+  ]),
+  functionName: 'safeTransferFrom',
+- args: ['0x…', '0x…', 100n],
++ args: {
++   from: '0x…',
++   to: '0x…',
++   tokenId: 100n,
++   data: '0x…',
++ },
+})
+```
+
+Even though overloads are an edge case, it would be sufficiently astonishing to come across this behavior. So what's the best way to represent args? Well, they are positional at the contract-level so it makes sense to represent them that way in viem too.
+
+Not all is lost when it comes to developer experience though! Tuple types in TypeScript can have names attached to them:
+
+```javascript
+type Args = [from: `0x${string}`, to: `0x${string}`, tokenId: bigint]
+```
+
+These names show up in your editor so you get nice developer experience when using autocomplete, etc. Unfortunately, TypeScript doesn't support dynamic named tuples right now, but we are watching this issue closely and once it is implemented, we will add it to viem. In the meantime, hang tight!
+
+Why is a contract function return type returning an array instead of an object?
+Suppose your ABI looks like this:
+
+```json
+[
+  {
+    inputs: [],
+    name: "latestRoundData",
+    outputs: [
+      { name: "roundId", type: "uint80" },
+      { name: "answer", type: "int256" },
+      { name: "startedAt", type: "uint256" },
+      { name: "updatedAt", type: "uint256" },
+      { name: "answeredInRound", type: "uint80" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  }
+]
+```
+
+You might be confused why the following does not return an object:
+
+```javascript
+import { createPublicClient, parseAbi } from 'viem'
+ 
+const client = createPublicClient(…)
+const res = await client.readContract({
+  address: '0x…',
+  abi: […], // abi from above
+  functionName: 'latestRoundData',
+})
+```
+
+res
+// ^? const res: [bigint, bigint, bigint, bigint, bigint]
+This is expected. "latestRoundData" outputs is an array of types, so you get an array of decoded values as the return type. viem only maps explicitly typed tuples as objects
+
+Why does viem follow this approach? Here is the contract function definition for latestRoundData with two different return types:
+
+```javascript
+function latestRoundData() external view
+  returns (
+    uint80 roundId,
+    int256 answer,
+    uint256 startedAt,
+    uint256 updatedAt,
+    uint80 answeredInRound
+  );
+ 
+struct Data {
+  uint80 roundId;
+  uint256 answer;
+  uint256 startedAt;
+  uint256 updatedAt;
+  uint80 answeredInRound
+}
+```
+ 
+function latestRoundData() external view returns (Data data);
+The first function returns a set of five items, so viem maps it to an array. The reason why we don't convert it to an object is because things get ambiguous when we come to decode structs. How do you determine the difference between a "return" tuple (first function) and a "struct" tuple (second function).
+
+Another reason is that folks might expect it to be an array (because it is a set of return items). Other libraries, like ethers, mitigate this by returning a hybrid Array/Object type, but that kind of type is not serializable in JavaScript, and viem prefers to not try and "hack" JavaScript types.
+
+Why doesn't Wallet Client support public actions?
+Wallet Client doesn't support public actions because wallet providers (Injected window.ethereum, WalletConnect v2, etc.) may not provide a large majority of "node"/"public" RPC methods like eth_call, eth_newFilter, eth_getLogs, etc. This is because these methods are not required for a wallet provider to function properly. For example, a wallet provider may only support eth_sendTransaction and eth_sign and nothing else.
+
+TypeScript
+TypeScript support for Viem
+viem is designed to be as type-safe as possible! Things to keep in mind:
+
+Types currently require using TypeScript v5.0.4 or greater.
+Changes to types in this repository are considered non-breaking and are usually released as patch semver changes (otherwise every type enhancement would be a major version!).
+It is highly recommended that you lock your viem package version to a specific patch release and upgrade with the expectation that types may be fixed or upgraded between any release.
+The non-type-related public API of viem still follows semver very strictly.
+To ensure everything works correctly, make sure that your tsconfig.json has strict mode set to true:
+
+tsconfig.json
+```json
+{
+  "compilerOptions": {
+    "strict": true
+  }
+}
+```
+
+Type Inference
+viem can infer types based on ABI and EIP-712 Typed Data definitions (powered by ABIType), giving you full end-to-end type-safety from your contracts to your frontend and incredible developer experience (e.g. autocomplete ABI function names and catch misspellings, strongly-typed ABI function arguments, etc.).
+
+For this to work, you must either add const assertions to specific configuration parameters (more info on those below) or define them inline. For example, readContract's abi configuration parameter:
+
+```typeScript
+const abi = [{ 
+  type: 'function', 
+  name: 'balanceOf', 
+  stateMutability: 'view', 
+  inputs: [{ type: 'address' }], 
+  outputs: [{ type: 'uint256' }], 
+}] as const
+      ↑ const assertion
+ 
+const result = client.readContract({
+  address: '0x27a69ffba1e939ddcfecc8c7e0f967b872bac65c',
+  abi, 
+  functionName: 'balanceOf',
+  args: ['0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC']
+})
+```
+
+```javascript
+  ↓ defined inline
+const result = client.readContract({
+  address: '0x27a69ffba1e939ddcfecc8c7e0f967b872bac65c',
+  abi: [{ 
+    type: 'function', 
+    name: 'balanceOf', 
+    stateMutability: 'view', 
+    inputs: [{ type: 'address' }], 
+    outputs: [{ type: 'uint256' }], 
+  }], 
+  functionName: 'balanceOf',
+  args: ['0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC']
+})
+```
+
+If type inference isn't working, it's likely you forgot to add a const assertion or define the configuration parameter inline.
+
+Unfortunately TypeScript doesn't support importing JSON as const. Check out @wagmi/cli to help with this! It can automatically fetch ABIs from Etherscan, resolve ABIs from your Foundry/Hardhat projects, and much more.
+
+Contract ABIs
+The following actions and utilities support type inference when you add a const assertion to abi or define abi inline:
+
+Actions
+createEventFilter
+watchEvent
+createContractEventFilter
+deployContract
+estimateContractGas
+multicall
+readContract
+simulateContract
+writeContract
+watchContractEvent
+Utilities
+decodeEventLog
+decodeFunctionResult
+encodeDeployData
+encodeErrorResult
+encodeEventTopics
+encodeFunctionData
+encodeFunctionResult
+getAbiItem
+For example, readContract:
+
+```typeScript
+const result = await client.readContract({
+ 	// Вылезет подсказка
+	const result: bigint
+	// Закончилась подсказка	
+  address: '0xecb504d39723b0be0e3a9aa33d646642d1051ee1',
+  abi: erc20Abi,
+functionName: 'balanceOf',
+  // Вылезет подсказка
+	functionName: "symbol" | "name" | "balanceOf" | "allowance" | "decimals" | "totalSupply"
+	// Закончилась подсказка	
+  // ↑ Notice how "transfer" is not included since it is not a "read" function
+args: ['0x27a69ffba1e939ddcfecc8c7e0f967b872bac65c'],
+  // Вылезет подсказка
+	args: readonly [`0x${string}`]
+	// Закончилась подсказка	
+})
+```
+
+EIP-712 Typed Data
+Adding a const assertion to types or defining types inline adds type inference to signTypedData's value configuration parameter:
+
+```typeScript
+const result = client.signTypedData({
+  domain: {
+    name: 'Ether Mail',
+    version: '1',
+    chainId: 1,
+    verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC',
+  },
+ 
+  types: {
+    Person: [
+      { name: 'name', type: 'string' },
+      { name: 'wallet', type: 'address' },
+    ],
+    Mail: [
+      { name: 'from', type: 'Person' },
+      { name: 'to', type: 'Person' },
+      { name: 'contents', type: 'string' },
+    ],
+  },
+ 
+  primaryType: 'Mail',
+ 
+  
+message: {
+   // Вылезет подсказка
+    message: {
+    from: {
+        name: string;
+        wallet: `0x${string}`;
+    };
+    to: {
+        name: string;
+        wallet: `0x${string}`;
+    };
+    contents: string;
+    }
+ // закончилась подсказка
+    from: {
+      name: 'Cow',
+      wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826',
+    },
+    to: {
+      name: 'Bob',
+      wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB',
+    },
+    contents: 'Hello, Bob!',
+  },
+})
+```
+
+Other
+The following utilities support type inference when you use const assertions or define arguments inline:
+
+decodeAbiParameters
+encodeAbiParameters
+encodePacked
+parseAbi
+parseAbiItem
+parseAbiParameter
+parseAbiParameters
+Configuring Internal Types
+For advanced use-cases, you may want to configure viem's internal types. Most of viem's types relating to ABIs and EIP-712 Typed Data are powered by ABIType. See ABIType's documentation for more info on how to configure types.
+
+window Polyfill
+By importing the viem/window Polyfill, the global window.ethereum will typed as an EIP1193Provider (including a fully-typed request function & typed events).
+
+```typeScript
+import 'viem/window';
+ 
+const hash = await window.ethereum.request({
+  method: 'e 
+	   //вылизет подсказка
+	   eth_blobBaseFee
+     eth_blockNumber
+     eth_chainId
+     eth_coinbase
+     eth_gasPrice
+     eth_maxPriorityFeePerGas
+     eth_newBlockFilter
+     eth_newPendingTransactionFilter
+     eth_protocolVersion
+     eth_accounts
+     eth_requestAccounts
+     eth_syncing
+     eth_supportedEntryPoints
+ 
+})
+ 
+const hash = await window.ethereum.request({
+  method: 'eth_getTransactionByHash',
+  
+params: [
+	// Вылезет подсказка
+	params: [hash: `0x${string}`]
+})
+```
+
+Error Handling
+Every module in viem exports an accompanying error type which you can use to strongly type your catch statements.
+
+These types come in the form of <Module>ErrorType. For example, the getBlockNumber action exports a GetBlockNumberErrorType type.
+
+Unfortunately, TypeScript doesn't have an abstraction for typed exceptions, so the most pragmatic & vanilla approach would be to explicitly cast error types in the catch statement.
+
+example.ts
+client.ts
+
+```typeScript
+import { type GetBlockNumberErrorType } from 'viem'
+import { client } from './client'
+ 
+try {
+  const blockNumber = await client.getBlockNumber()
+} catch (e) {
+  const error = e as GetBlockNumberErrorType
+  error.
+name 
+// подсказка
+  name: "Error" | "ChainDisconnectedError" | "HttpRequestError" | "InternalRpcError" | "InvalidInputRpcError" | "InvalidParamsRpcError" | "InvalidRequestRpcError" | "JsonRpcVersionUnsupportedError" | ... 16 more ... | "WebSocketRequestError"
+/
+  if (error.name === 'InternalRpcError')
+    error.code
+     // подсказка
+		 code: -32603
+		 //
+  if (error.name === 'HttpRequestError') {
+    error.headers
+     // подсказка
+		 HttpRequestError.headers?: Headers | undefined
+		 //
+    error.status
+		 // подсказка
+		 HttpRequestError.status?: number | undefined
+		 //
+  }
+}
+```
+
+Introduction to Clients & Transports
+A brief introduction to Clients & Transports.
+Clients
+A Client provides access to a subset of Actions.
+
+A Client in the context of viem is similar to an Ethers.js Provider.
+
+There are three types of Clients in viem:
+
+A Public Client which provides access to Public Actions, such as getBlockNumber and getBalance.
+A Wallet Client which provides access to Wallet Actions, such as sendTransaction and signMessage.
+A Test Client which provides access to Test Actions, such as mine and impersonate.
+Transports
+A Client is instantiated with a Transport, which is the intermediary layer that is responsible for executing outgoing requests (ie. RPC requests).
+
+There are three types of Transports in viem:
+
+A HTTP Transport that executes requests via a HTTP JSON-RPC API.
+A WebSocket Transport that executes requests via a WebSocket JSON-RPC API.
+A Custom Transport that executes requests via an EIP-1193 request function.
+
+Public Client
+A function to create a Public Client
+A Public Client is an interface to "public" JSON-RPC API methods such as retrieving block numbers, transactions, reading from smart contracts, etc through Public Actions.
+
+The createPublicClient function sets up a Public Client with a given Transport configured for a Chain.
+
+Import
+```typeScript
+import { createPublicClient } from 'viem'
+```
+Usage
+Initialize a Client with your desired Chain (e.g. mainnet) and Transport (e.g. http).
+
+```typeScript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const publicClient = createPublicClient({ 
+  chain: mainnet,
+  transport: http()
+})
+```
+
+Then you can consume Public Actions:
+
+
+const blockNumber = await publicClient.getBlockNumber() 
+Optimization
+The Public Client also supports eth_call Aggregation for improved performance.
+
+eth_call Aggregation (via Multicall)
+The Public Client supports the aggregation of eth_call requests into a single multicall (aggregate3) request.
+
+This means for every Action that utilizes an eth_call request (ie. readContract), the Public Client will batch the requests (over a timed period) and send it to the RPC Provider in a single multicall request. This can dramatically improve network performance, and decrease the amount of Compute Units (CU) used by RPC Providers like Alchemy, Infura, etc.
+
+The Public Client schedules the aggregation of eth_call requests over a given time period. By default, it executes the batch request at the end of the current JavaScript message queue (a zero delay), however, consumers can specify a custom wait period (in ms).
+
+You can enable eth_call aggregation by setting the batch.multicall flag to true:
+
+```typeScript
+const publicClient = createPublicClient({
+  batch: {
+    multicall: true, 
+  },
+  chain: mainnet,
+  transport: http(),
+})
+```
+You can also customize the multicall options.
+
+Now, when you start to utilize readContract Actions, the Public Client will batch and send over those requests at the end of the message queue (or custom time period) in a single eth_call multicall request:
+
+example.ts
+```typeScript
+import { getContract } from 'viem'
+import { abi } from './abi'
+import { publicClient } from './client'
+ 
+const contract = getContract({ address, abi, client: publicClient })
+ 
+// The below will send a single request to the RPC Provider.
+const [name, totalSupply, symbol, balance] = await Promise.all([
+  contract.read.name(),
+  contract.read.totalSupply(),
+  contract.read.symbol(),
+  contract.read.balanceOf([address]),
+])
+```
+client.ts
+```typeScript
+import { http, createPublicClient } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http(),
+})
+```
+abi.ts
+```typeScript
+export const abi = [
+  {
+    type: 'event',
+    name: 'Approval',
+    inputs: [
+      {
+        indexed: true,
+        name: 'owner',
+        type: 'address',
+      },
+      {
+        indexed: true,
+        name: 'spender',
+        type: 'address',
+      },
+      {
+        indexed: false,
+        name: 'value',
+        type: 'uint256',
+      },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Transfer',
+    inputs: [
+      {
+        indexed: true,
+        name: 'from',
+        type: 'address',
+      },
+      {
+        indexed: true,
+        name: 'to',
+        type: 'address',
+      },
+      {
+        indexed: false,
+        name: 'value',
+        type: 'uint256',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      {
+        name: 'owner',
+        type: 'address',
+      },
+      {
+        name: 'spender',
+        type: 'address',
+      },
+    ],
+    outputs: [
+      {
+        type: 'uint256',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'spender',
+        type: 'address',
+      },
+      {
+        name: 'amount',
+        type: 'uint256',
+      },
+    ],
+    outputs: [
+      {
+        type: 'bool',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [
+      {
+        name: 'account',
+        type: 'address',
+      },
+    ],
+    outputs: [
+      {
+        type: 'uint256',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'decimals',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      {
+        type: 'uint8',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'name',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      {
+        type: 'string',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'symbol',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      {
+        type: 'string',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'totalSupply',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      {
+        type: 'uint256',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'transfer',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'recipient',
+        type: 'address',
+      },
+      {
+        name: 'amount',
+        type: 'uint256',
+      },
+    ],
+    outputs: [
+      {
+        type: 'bool',
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'transferFrom',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'sender',
+        type: 'address',
+      },
+      {
+        name: 'recipient',
+        type: 'address',
+      },
+      {
+        name: 'amount',
+        type: 'uint256',
+      },
+    ],
+    outputs: [
+      {
+        type: 'bool',
+      },
+    ],
+  },
+] as const
+```
+Read more on Contract Instances.
+
+Parameters
+transport
+Type: Transport
+The Transport of the Public Client.
+
+```typeScript
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http(), 
+})
+```
+chain (optional)
+Type: Chain
+The Chain of the Public Client.
+
+```typeScript
+const publicClient = createPublicClient({
+  chain: mainnet, 
+  transport: http(),
+})
+```
+batch (optional)
+Flags for batch settings.
+
+batch.multicall (optional)
+Type: boolean | MulticallBatchOptions
+Default: false
+Toggle to enable eth_call multicall aggregation.
+
+```typeScript
+const publicClient = createPublicClient({
+  batch: {
+    multicall: true, 
+  },
+  chain: mainnet,
+  transport: http(),
+})
+```
+
+batch.multicall.batchSize (optional)
+Type: number
+Default: 1_024
+The maximum size (in bytes) for each multicall (aggregate3) calldata chunk.
+
+Note: Some RPC Providers limit the amount of calldata that can be sent in a single request. It is best to check with your RPC Provider to see if there are any calldata size limits to eth_call requests.
+
+```typeScript
+const publicClient = createPublicClient({
+  batch: {
+    multicall: {
+      batchSize: 512, 
+    },
+  },
+  chain: mainnet,
+  transport: http(),
+})
+```
+batch.multicall.wait (optional)
+Type: number
+Default: 0 (zero delay)
+The maximum number of milliseconds to wait before sending a batch.
+
+```typeScript
+const publicClient = createPublicClient({
+  batch: {
+    multicall: {
+      wait: 16, 
+    },
+  },
+  chain: mainnet,
+  transport: http(),
+})
+```
+cacheTime (optional)
+Type: number
+Default: client.pollingInterval
+Time (in ms) that cached data will remain in memory.
+
+```typeScript
+const publicClient = createPublicClient({
+  cacheTime: 10_000, 
+  chain: mainnet,
+  transport: http(),
+})
+```
+ccipRead (optional)
+Type: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType> | false
+Default: true
+CCIP Read configuration.
+
+CCIP Read is enabled by default, but if set to false, the client will not support offchain CCIP lookups.
+
+```typeScript
+const publicClient = createPublicClient({
+  ccipRead: false, 
+  chain: mainnet,
+  transport: http(),
+})
+```
+ccipRead.request (optional)
+Type: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType>
+A function that will be called to make the offchain CCIP lookup request.
+
+```typeScript
+const publicClient = createPublicClient({
+  ccipRead: { 
+    async request({ data, sender, urls }) { 
+      // ... 
+    } 
+  }, 
+  chain: mainnet,
+  transport: http(),
+})
+```
+key (optional)
+Type: string
+Default: "public"
+A key for the Client.
+
+```typeScript
+const publicClient = createPublicClient({
+  chain: mainnet,
+  key: 'public', 
+  transport: http(),
+})
+```
+name (optional)
+Type: string
+Default: "Public Client"
+A name for the Client.
+
+```typeScript
+const publicClient = createPublicClient({
+  chain: mainnet,
+  name: 'Public Client', 
+  transport: http(),
+})
+```
+pollingInterval (optional)
+Type: number
+Default: 4_000
+Frequency (in ms) for polling enabled Actions.
+
+```typeScript
+const publicClient = createPublicClient({
+  chain: mainnet,
+  pollingInterval: 10_000, 
+  transport: http(),
+})
+```
+rpcSchema (optional)
+Type: RpcSchema
+Default: PublicRpcSchema
+Typed JSON-RPC schema for the client.
+
+```typeScript
+import { rpcSchema } from 'viem'
+ 
+type CustomRpcSchema = [{ 
+  Method: 'eth_wagmi', 
+  Parameters: [string] 
+  ReturnType: string
+}] 
+ 
+const publicClient = createPublicClient({
+  chain: mainnet,
+  rpcSchema: rpcSchema<CustomRpcSchema>(), 
+  transport: http(),
+})
+ 
+const result = await publicClient.request({ 
+  method: 'eth_wa
+ // [!code focus] 
+  params: ['hello'], 
+}) 
+```
+Live Example
+Check out the usage of createPublicClient in the live Public Client Example below.
+
+
+Wallet Client
+A function to create a Wallet Client.
+A Wallet Client is an interface to interact with Ethereum Account(s) and provides the ability to retrieve accounts, execute transactions, sign messages, etc through Wallet Actions.
+
+The createWalletClient function sets up a Wallet Client with a given Transport.
+
+The Wallet Client supports signing over:
+
+JSON-RPC Accounts (e.g. Browser Extension Wallets, WalletConnect, etc.).
+Local Accounts (e.g. private key/mnemonic wallets).
+Import
+
+import { createWalletClient } from 'viem'
+JSON-RPC Accounts
+A JSON-RPC Account defers signing of transactions & messages to the target Wallet over JSON-RPC. An example could be sending a transaction via a Browser Extension Wallet (e.g. MetaMask) with the window.ethereum Provider.
+
+Below is an example of how you can set up a JSON-RPC Account.
+
+1: Initialize a Wallet Client
+Before we set up our Account and start consuming Wallet Actions, we will need to set up our Wallet Client with the custom Transport, where we will pass in the window.ethereum Provider:
+
+```typeScript
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+```
+2: Set up your JSON-RPC Account
+We will want to retrieve an address that we can access in our Wallet (e.g. MetaMask).
+
+```typeScript
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+ 
+const [address] = await client.getAddresses() 
+// or: const [address] = await client.requestAddresses() 
+```
+Note: Some Wallets (like MetaMask) may require you to request access to Account addresses via client.requestAddresses first.
+
+3: Consume Wallet Actions
+Now you can use that address within Wallet Actions that require a signature from the user:
+
+```typeScript
+import { createWalletClient, custom, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+ 
+const [address] = await client.getAddresses()
+ 
+const hash = await client.sendTransaction({ 
+  account: address,
+  to: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('0.001')
+})
+```
+Optional: Hoist the Account
+If you do not wish to pass an account around to every Action that requires an account, you can also hoist the account into the Wallet Client.
+
+```typeScript
+import { createWalletClient, http, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const [account] = await window.ethereum!.request({ method: 'eth_requestAccounts' })
+ 
+const client = createWalletClient({ 
+  account, 
+  chain: mainnet,
+  transport: http()
+})
+ 
+const hash = await client.sendTransaction({
+  account, 
+  to: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('0.001')
+})
+```
+Local Accounts (Private Key, Mnemonic, etc)
+A Local Account performs signing of transactions & messages with a private key before executing a method over JSON-RPC.
+
+There are three types of Local Accounts in viem:
+
+Private Key Account
+Mnemonic Account
+Hierarchical Deterministic (HD) Account
+Below are the steps to integrate a Private Key Account, but the same steps can be applied to Mnemonic & HD Accounts.
+
+1: Initialize a Wallet Client
+Before we set up our Account and start consuming Wallet Actions, we will need to set up our Wallet Client with the http Transport:
+
+```typeScript
+import { createWalletClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+2: Set up your Local Account
+Next, we will instantiate a Private Key Account using privateKeyToAccount:
+
+```typeScript
+import { createWalletClient, http } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: http()
+})
+ 
+const account = privateKeyToAccount('0x...') 
+```
+3: Consume Wallet Actions
+Now you can use that Account within Wallet Actions that need a signature from the user:
+
+```typeScript
+import { createWalletClient, http, parseEther } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  chain: mainnet,
+  transport: http()
+})
+ 
+const account = privateKeyToAccount('0x...')
+ 
+const hash = await client.sendTransaction({ 
+  account,
+  to: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('0.001')
+})
+```
+Optional: Hoist the Account
+If you do not wish to pass an account around to every Action that requires an account, you can also hoist the account into the Wallet Client.
+
+```typeScript
+import { createWalletClient, http, parseEther } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { mainnet } from 'viem/chains'
+ 
+const account = privateKeyToAccount('0x...')
+ 
+const client = createWalletClient({ 
+  account, 
+  chain: mainnet,
+  transport: http()
+})
+ 
+const hash = await client.sendTransaction({
+  account, 
+  to: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('0.001')
+})
+```
+Optional: Extend with Public Actions
+When using a Local Account, you may be finding yourself using a Public Client instantiated with the same parameters (transport, chain, etc) as your Wallet Client.
+
+In this case, you can extend your Wallet Client with Public Actions to avoid having to handle multiple Clients.
+
+```typeScript
+import { createWalletClient, http, publicActions } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { mainnet } from 'viem/chains'
+ 
+const account = privateKeyToAccount('0x...')
+ 
+const client = createWalletClient({ 
+  account,
+  chain: mainnet,
+  transport: http()
+}).extend(publicActions) 
+ 
+const { request } = await client.simulateContract({ ... }) // Public Action 
+const hash = await client.writeContract(request) // Wallet Action 
+```
+Parameters
+account (optional)
+Type: Account | Address
+The Account to use for the Wallet Client. This will be used for Actions that require an account as an argument.
+
+Accepts a JSON-RPC Account or Local Account (Private Key, etc).
+
+```typeScript
+import { createWalletClient, custom, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+const client = createWalletClient({
+  account: '0x...', 
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+ 
+const hash = await client.sendTransaction({
+  to: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('0.001')
+})
+```
+chain (optional)
+Type: Chain
+The Chain of the Wallet Client.
+
+Used in the sendTransaction & writeContract Actions to assert that the chain matches the wallet's active chain.
+
+```typeScript
+const client = createWalletClient({
+  chain: mainnet, 
+  transport: custom(window.ethereum!)
+})
+```
+cacheTime (optional)
+Type: number
+Default: client.pollingInterval
+Time (in ms) that cached data will remain in memory.
+
+```typeScript
+const client = createWalletClient({
+  cacheTime: 10_000, 
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+```
+ccipRead (optional)
+Type: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType> | false
+Default: true
+CCIP Read configuration.
+
+CCIP Read is enabled by default, but if set to false, the client will not support offchain CCIP lookups.
+
+```typeScript
+const client = createWalletClient({
+  ccipRead: false, 
+  transport: custom(window.ethereum!)
+})
+```
+ccipRead.request (optional)
+Type: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType>
+A function that will be called to make the offchain CCIP lookup request.
+
+```typeScript
+const client = createWalletClient({
+  ccipRead: { 
+    async request({ data, sender, urls }) { 
+      // ... 
+    } 
+  }, 
+  transport: custom(window.ethereum!)
+})
+```
+key (optional)
+Type: string
+Default: "wallet"
+A key for the Client.
+
+```typeScript
+const client = createWalletClient({
+  key: 'foo', 
+  transport: custom(window.ethereum!)
+})
+```
+name (optional)
+Type: string
+Default: "Wallet Client"
+A name for the Client.
+
+```typeScript
+const client = createWalletClient({
+  name: 'Foo Wallet Client', 
+  transport: custom(window.ethereum!)
+})
+```
+pollingInterval (optional)
+Type: number
+Default: 4_000
+Frequency (in ms) for polling enabled Actions.
+
+```typeScript
+const client = createWalletClient({
+  pollingInterval: 10_000, 
+  transport: custom(window.ethereum!)
+})
+```
+rpcSchema (optional)
+Type: RpcSchema
+Default: WalletRpcSchema
+Typed JSON-RPC schema for the client.
+
+```typeScript
+import { rpcSchema } from 'viem'
+ 
+type CustomRpcSchema = [{ 
+  Method: 'eth_wagmi', 
+  Parameters: [string] 
+  ReturnType: string
+}] 
+ 
+const client = createWalletClient({
+  rpcSchema: rpcSchema<CustomRpcSchema>(), 
+  transport: custom(window.ethereum!)
+})
+ 
+const result = await client.request({ 
+  method: 'eth_wa
+	 // ```eth_wagmi
+ // [!code focus] 
+  params: ['hello'], 
+}) 
+```
+
+Test Client
+A function to create a Test Client
+A Test Client is an interface to "test" JSON-RPC API methods accessible through a local Ethereum test node such as Anvil or Hardhat such as mining blocks, impersonating accounts, setting fees, etc through Test Actions.
+
+The createTestClient function sets up a Test RPC Client with a given Transport.
+
+Import
+```typeScript
+import { createTestClient } from 'viem'
+```
+Usage
+Initialize a Client with your desired Chain, Transport (e.g. http) and mode (e.g. "anvil").
+
+```typeScript
+import { createTestClient, http } from 'viem'
+import { foundry } from 'viem/chains'
+ 
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil',
+  transport: http(), 
+})
+```
+Then you can consume Test Actions:
+
+```typeScript
+const mine = await client.mine({ blocks: 1 }) 
+```
+Extending with Public & Wallet Actions
+When interacting with a Ethereum test node, you may also find yourself wanting to interact with Public Actions and Wallet Actions with the same chain and transport. Instead of creating three different Clients, you can instead just extend the Test Client with those actions:
+
+```typeScript
+import { createTestClient, http, publicActions, walletActions } from 'viem'
+import { foundry } from 'viem/chains'
+ 
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil',
+  transport: http(), 
+})
+  .extend(publicActions) 
+  .extend(walletActions) 
+ 
+const blockNumber = await client.getBlockNumber() // Public Action
+const hash = await client.sendTransaction({ ... }) // Wallet Action
+const mine = await client.mine({ blocks: 1 }) // Test Action
+```
+Parameters
+mode
+Type: "anvil" | "hardhat" | "ganache"
+Mode of the Test Client.
+
+```typeScript
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil', 
+  transport: http(), 
+})
+```
+transport
+Type: Transport
+Transport of the Test Client.
+
+```typeScript
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil', 
+  transport: http(),  
+})
+```
+account (optional)
+Type: Account | Address
+The Account to use for the Client. This will be used for Actions that require an account as an argument.
+
+Accepts a JSON-RPC Account or Local Account (Private Key, etc).
+```typeScript
+import { privateKeyToAccount } from 'viem/accounts'
+ 
+const client = createTestClient({
+  account: privateKeyToAccount('0x...'), 
+  chain: foundry,
+  mode: 'anvil',
+  transport: http(),
+})
+```
+chain (optional)
+Type: Chain
+Chain of the Test Client.
+
+```typeScript
+const client = createTestClient({
+  chain: foundry, 
+  mode: 'anvil',
+  transport: http(), 
+})
+```
+cacheTime (optional)
+Type: number
+Default: client.pollingInterval
+Time (in ms) that cached data will remain in memory.
+
+```typeScript
+const client = createTestClient({
+  cacheTime: 10_000, 
+  chain: foundry,
+  mode: 'anvil',
+  transport: http(),
+}
+```
+name (optional)
+Type: string
+Default: "Test Client"
+A name for the Client.
+
+```typeScript
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil', 
+  name: 'Anvil Client',  
+  transport: http(),
+})
+```
+pollingInterval (optional)
+Type: number
+Default: 4_000
+Frequency (in ms) for polling enabled Actions.
+
+```typeScript
+const client = createTestClient({
+  chain: foundry,
+  mode: 'anvil', 
+  pollingInterval: 10_000,  
+  transport: http(),
+})
+```
+rpcSchema (optional)
+Type: RpcSchema
+Default: TestRpcSchema
+Typed JSON-RPC schema for the client.
+
+```typeScript
+import { rpcSchema } from 'viem'
+ 
+type CustomRpcSchema = [{ 
+  Method: 'eth_wagmi', 
+  Parameters: [string] 
+  ReturnType: string
+}] 
+ 
+const client = createTestClient({
+  chain: foundry,
+  rpcSchema: rpcSchema<CustomRpcSchema>(), 
+  transport: http()
+})
+ 
+const result = await client.request({ 
+  method: 'eth_wa
+	// eth_wagmi
+ // [!code focus] 
+  params: ['hello'], 
+}) 
+```
+
+Вот как будет выглядеть AI-дружественное описание для Cursor Rules в формате Markdown:
+
+---
+
+# viem – Public Actions: `createAccessList`
+
+## Что такое Public Actions
+
+**Public Actions** — это действия, соответствующие публичным Ethereum RPC-методам (`eth_blockNumber`, `eth_getBalance` и др.).  
+Используются через **Public Client**, **не требуют подписей** и **не нуждаются в правах доступа**.
+
+Примеры Public Actions:
+- Получение баланса аккаунта
+- Получение данных по транзакции
+- Получение номера текущего блока
+
+---
+
+## `createAccessList`
+
+Создаёт access list по стандарту **EIP-2930** на основе параметров транзакции.  
+Полезно при расчёте gas и подготовке к отправке транзакции.
+
+### 📦 Возвращает
+
+```ts
+{
+  accessList: AccessList,
+  gasUsed: bigint
+}
+```
+
+- `accessList` — массив адресов и storage-слотов
+- `gasUsed` — рассчитанное потребление газа
+
+---
+
+### ✅ Пример использования
+
+```ts
+import { publicClient } from './config'
+
+const result = await publicClient.createAccessList({
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  data: '0xdeadbeef'
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `account` | `Account \| Address` | нет | Аккаунт, от которого рассчитывается access list |
+| `blockNumber` | `number` | нет | Номер блока, для которого формируется access list |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет (по умолчанию `'latest'`) | Альтернатива `blockNumber`, указывает состояние блока |
+| `data` | `0x${string}` | нет | Контрактная функция с аргументами (ABI-encoded) |
+| `gasPrice` | `bigint` | нет | Цена газа (в wei), используется только для Legacy-транзакций |
+| `maxFeePerGas` | `bigint` | нет | Общая цена за газ (в wei), используется в EIP-1559 |
+| `maxPriorityFeePerGas` | `bigint` | нет | Премия за приоритет (в wei), также EIP-1559 |
+| `to` | `Address` | нет | Адрес получателя транзакции |
+| `value` | `bigint` | нет | Значение (в wei), отправляемое вместе с транзакцией |
+
+---
+
+## 🔁 Примеры параметров
+
+### `account`
+
+```ts
+await publicClient.createAccessList({
+  account: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.createAccessList({
+  blockNumber: 15121123n,
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.createAccessList({
+  blockTag: 'safe',
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+### `gasPrice`
+
+```ts
+await publicClient.createAccessList({
+  gasPrice: parseGwei('20'),
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+### `maxFeePerGas` + `maxPriorityFeePerGas`
+
+```ts
+await publicClient.createAccessList({
+  maxFeePerGas: parseGwei('20'),
+  maxPriorityFeePerGas: parseGwei('2'),
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+### `value`
+
+```ts
+await publicClient.createAccessList({
+  value: parseEther('1'),
+  data: '0xdeadbeef',
+  to: '0x7099...79c8'
+})
+```
+
+# viem – Public Actions: `createAccessList`
+
+## Что такое Public Actions
+
+**Public Actions** — это действия, соответствующие публичным Ethereum RPC-методам (`eth_blockNumber`, `eth_getBalance` и др.).  
+Используются через **Public Client**, **не требуют подписей** и **не нуждаются в правах доступа**.
+
+Примеры Public Actions:
+- Получение баланса аккаунта
+- Получение данных по транзакции
+- Получение номера текущего блока
+
+---
+
+## `createAccessList`
+
+Создаёт access list по стандарту **EIP-2930** на основе параметров транзакции.  
+Полезно при расчёте gas и подготовке к отправке транзакции.
+
+### 📦 Возвращает
+
+```ts
+{
+  accessList: AccessList,
+  gasUsed: bigint
+}
+```
+
+- `accessList` — массив адресов и storage-слотов
+- `gasUsed` — рассчитанное потребление газа
+
+---
+
+### ✅ Пример использования
+
+```ts
+import { publicClient } from './config'
+
+const result = await publicClient.createAccessList({
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  data: '0xdeadbeef'
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `account` | `Account \| Address` | нет | Аккаунт, от которого рассчитывается access list |
+| `blockNumber` | `number` | нет | Номер блока, для которого формируется access list |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет (по умолчанию `'latest'`) | Альтернатива `blockNumber`, указывает состояние блока |
+| `data` | `0x${string}` | нет | Контрактная функция с аргументами (ABI-encoded) |
+| `gasPrice` | `bigint` | нет | Цена газа (в wei), используется только для Legacy-транзакций |
+| `maxFeePerGas` | `bigint` | нет | Общая цена за газ (в wei), используется в EIP-1559 |
+| `maxPriorityFeePerGas` | `bigint` | нет | Премия за приоритет (в wei), также EIP-1559 |
+| `to` | `Address` | нет | Адрес получателя транзакции |
+| `value` | `bigint` | нет | Значение (в wei), отправляемое вместе с транзакцией |
+
+---
+
+## 🔁 Примеры параметров
+
+### `account`
+
+```ts
+await publicClient.createAccessList({
+  account: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.createAccessList({
+  blockNumber: 15121123n,
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.createAccessList({
+  blockTag: 'safe',
+  account: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+### `gasPrice`
+
+```ts
+import { parseGwei } from 'viem'
+
+await publicClient.createAccessList({
+  gasPrice: parseGwei('20'),
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+### `maxFeePerGas` + `maxPriorityFeePerGas`
+
+```ts
+import { parseGwei } from 'viem'
+
+await publicClient.createAccessList({
+  maxFeePerGas: parseGwei('20'),
+  maxPriorityFeePerGas: parseGwei('2'),
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+### `value`
+
+```ts
+import { parseEther } from 'viem'
+
+await publicClient.createAccessList({
+  value: parseEther('1'),
+  data: '0xdeadbeef',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8'
+})
+```
+
+# viem – Public Actions: `getBalance`
+
+## Описание
+
+Возвращает баланс указанного адреса в **wei**.  
+Метод соответствует JSON-RPC методу `eth_getBalance`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Баланс адреса в wei.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const balance = await publicClient.getBalance({ 
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+})
+// => 10000000000000000000000n (в wei)
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `address` | `Address` | да | Адрес аккаунта |
+| `blockNumber` | `bigint` | нет | Блок, на котором запрашивается баланс |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет | Тег блока, альтернатива `blockNumber` |
+
+---
+
+## 🔁 Примеры параметров
+
+### `address`
+
+```ts
+await publicClient.getBalance({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.getBalance({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+  blockNumber: 69420n
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.getBalance({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+  blockTag: 'safe'
+})
+```
+
+---
+
+## 💡 Подсказка
+
+Для отображения баланса в эфире, можно использовать `formatEther`:
+
+```ts
+import { formatEther } from 'viem'
+
+const balance = await publicClient.getBalance({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+  blockTag: 'safe'
+})
+
+const balanceAsEther = formatEther(balance)
+// "6.942"
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_getBalance
+```
+
+# viem – Public Actions: `getTransactionCount`
+
+## Описание
+
+Возвращает количество транзакций, отправленных указанным адресом.  
+Это значение также используется как **nonce** для следующей транзакции.  
+Метод соответствует JSON-RPC методу `eth_getTransactionCount`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+number
+```
+
+Количество отправленных транзакций.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const transactionCount = await publicClient.getTransactionCount({  
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+})
+// => 420
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `address` | `Address` | да | Адрес аккаунта |
+| `blockNumber` | `bigint` | нет | Получить значение на конкретном блоке |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет | Тег блока, альтернатива `blockNumber` |
+
+---
+
+## 🔁 Примеры параметров
+
+### `address`
+
+```ts
+await publicClient.getTransactionCount({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.getTransactionCount({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+  blockNumber: 69420n
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.getTransactionCount({
+  address: '0xA0Cf798816D4b9b9866b5330EEa46a18382f251e',
+  blockTag: 'safe'
+})
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_getTransactionCount
+```
+# viem – Public Actions: `getBlock`
+
+## Описание
+
+Возвращает информацию о блоке по номеру, хэшу или тегу.  
+Метод вызывает `eth_getBlockByNumber`, `eth_getBlockByTag` или `eth_getBlockByHash`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+Block
+```
+
+Объект с информацией о блоке: `baseFeePerGas`, `difficulty`, `extraData`, `timestamp`, `transactions`, и др.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const block = await publicClient.getBlock()
+// =>
+// {
+//   baseFeePerGas: 10789405161n,
+//   difficulty: 11569232145203128n,
+//   extraData: '0x75732d656173742d38',
+//   ...
+// }
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `blockHash` | `Hash` | нет | Получить блок по хэшу |
+| `blockNumber` | `bigint` | нет | Получить блок по номеру |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет (по умолчанию `'latest'`) | Получить блок по тегу |
+| `includeTransactions` | `boolean` | нет | Включить массив транзакций в ответ |
+
+---
+
+## 🔁 Примеры параметров
+
+### `blockHash`
+
+```ts
+await publicClient.getBlock({
+  blockHash: '0x89644bbd5c8d682a2e9611170e6c1f02573d866d286f006cbf517eec7254ec2d'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.getBlock({
+  blockNumber: 42069n
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.getBlock({
+  blockTag: 'safe'
+})
+```
+
+### `includeTransactions`
+
+```ts
+await publicClient.getBlock({
+  includeTransactions: true
+})
+```
+
+---
+
+## 🔗 JSON-RPC методы
+
+- `eth_getBlockByNumber` — если используется `blockNumber` или `blockTag`
+- `eth_getBlockByHash` — если указан `blockHash`
+
+# viem – Public Actions: `getBlockNumber`
+
+## Описание
+
+Возвращает номер самого последнего известного блока.  
+Метод соответствует JSON-RPC вызову `eth_blockNumber`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Номер блока.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const blockNumber = await publicClient.getBlockNumber()
+// => 69420n
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `cacheTime` | `number` | нет | Время (в мс), в течение которого значение будет храниться в кэше клиента. По умолчанию — `Client`'s cacheTime |
+
+---
+
+## 🔁 Пример с `cacheTime`
+
+```ts
+await publicClient.getBlockNumber({
+  cacheTime: 4000 // блок будет кэшироваться 4 секунды
+})
+```
+
+- `cacheTime > 0` — кэширование включено на заданное время
+- `cacheTime = 0` — отключает кэш, всегда возвращает актуальный номер блока
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_blockNumber
+```
+
+# viem – Public Actions: `getBlockTransactionCount`
+
+## Описание
+
+Возвращает количество транзакций в блоке по номеру, хэшу или тегу.  
+Метод вызывает `eth_getBlockTransactionCountByNumber` или `eth_getBlockTransactionCountByHash`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+number
+```
+
+Количество транзакций в блоке.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const count = await publicClient.getBlockTransactionCount()
+// => 23
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `blockHash` | `Hash` | нет | Получить количество по хэшу блока |
+| `blockNumber` | `bigint` | нет | Получить количество по номеру блока |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет (по умолчанию `'latest'`) | Получить количество по тегу блока |
+
+---
+
+## 🔁 Примеры параметров
+
+### `blockHash`
+
+```ts
+await publicClient.getBlockTransactionCount({
+  blockHash: '0x89644bbd5c8d682a2e9611170e6c1f02573d866d286f006cbf517eec7254ec2d'
+})
+```
+
+### `blockNumber`
+
+```ts
+await publicClient.getBlockTransactionCount({
+  blockNumber: 42069n
+})
+```
+
+### `blockTag`
+
+```ts
+await publicClient.getBlockTransactionCount({
+  blockTag: 'safe'
+})
+```
+
+---
+
+## 🔗 JSON-RPC методы
+
+- `eth_getBlockTransactionCountByNumber` — при использовании `blockNumber` или `blockTag`
+- `eth_getBlockTransactionCountByHash` — при использовании `blockHash`
+
+# viem – Public Actions: `simulateBlocks`
+
+## Описание
+
+Симулирует выполнение набора вызовов (calls) на виртуальных блоках с возможностью переопределения состояния и параметров блоков.  
+Метод использует `eth_simulateV1` внутри.
+
+---
+
+## 📦 Возвращает
+
+```ts
+SimulateBlocksReturnType
+```
+
+Результаты симуляции всех вызовов по всем указанным блокам.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { parseEther } from 'viem'
+import { client } from './config'
+
+const result = await client.simulateBlocks({
+  blocks: [{
+    blockOverrides: {
+      number: 69420n,
+    },
+    calls: [
+      {
+        from: '0x5a0b54d5dc17e482fe8b0bdca5320161b95fb929',
+        to: '0xcb98643b8786950F0461f3B0edf99D88F274574D',
+        value: parseEther('2'),
+      },
+      {
+        from: '0x5a0b54d5dc17e482fe8b0bdca5320161b95fb929',
+        to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+        value: parseEther('1'),
+      },
+    ],
+    stateOverrides: [{
+      address: '0x5a0b54d5dc17e482fe8b0bdca5320161b95fb929',
+      balance: parseEther('10'),
+    }],
+  }]
+})
+```
+
+---
+
+## Поддержка вызовов контрактов
+
+`calls` также поддерживает вызовы контрактов с использованием `abi`, `functionName` и `args`:
+
+```ts
+import { parseAbi, parseEther } from 'viem'
+
+const abi = parseAbi([
+  'function approve(address, uint256) returns (bool)',
+  'function transferFrom(address, address, uint256) returns (bool)',
+])
+
+const result = await client.simulateBlocks({ 
+  blocks: [{
+    calls: [
+      {
+        from: '0x5a0b54d5dc17e482fe8b0bdca5320161b95fb929',
+        to: '0x7099...79c8',
+        value: parseEther('1')
+      },
+      {
+        from: '0x5a0b...fb929',
+        to: '0xFBA3...79c2',
+        abi,
+        functionName: 'approve',
+        args: [
+          '0xa5cc...78AC', 
+          100n
+        ],
+      },
+      {
+        from: '0x5a0b...fb929',
+        to: '0xFBA3...79c2',
+        abi,
+        functionName: 'transferFrom',
+        args: [
+          '0xa5cc...78AC',
+          '0x0000...0000',
+          100n
+        ],
+      },
+    ],
+  }]
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `blocks` | `Array<BlockSimulation>` | да | Набор блоков и вызовов для симуляции |
+| `returnFullTransactions` | `boolean` | нет | Возвращать ли полные данные транзакций |
+| `traceTransfers` | `boolean` | нет | Трассировать ли переводы |
+| `validation` | `boolean` | нет | Включить режим валидации |
+
+---
+
+### Внутри `blocks[]`
+
+| Подпараметр | Тип | Описание |
+|-------------|-----|----------|
+| `calls` | `TransactionRequest[]` | Список вызовов/транзакций для симуляции |
+| `blockOverrides` | `BlockOverrides` | Переопределения параметров блока |
+| `stateOverrides` | `StateOverride[]` | Переопределения балансов/стейта |
+
+---
+
+## 🔁 Примеры опций
+
+### `returnFullTransactions`
+
+```ts
+simulateBlocks({ ..., returnFullTransactions: true })
+```
+
+### `traceTransfers`
+
+```ts
+simulateBlocks({ ..., traceTransfers: true })
+```
+
+### `validation`
+
+```ts
+simulateBlocks({ ..., validation: true })
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_simulateV1
+```
+
+# viem – Public Actions: `watchBlockNumber`
+
+## Описание
+
+Подписывается на входящие номера блоков и вызывает колбэк при каждом новом блоке.  
+Может использовать WebSocket или polling (опрос).  
+В зависимости от конфигурации клиента вызывает либо `eth_blockNumber`, либо `eth_subscribe`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+UnwatchFn
+```
+
+Функция, которую можно вызвать для остановки подписки.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const unwatch = publicClient.watchBlockNumber({ 
+  onBlockNumber: blockNumber => console.log(blockNumber),
+})
+
+// => 69420n
+// => 69421n
+// => 69422n
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `onBlockNumber` | `(blockNumber: bigint) => void` | да | Колбэк, вызывается при каждом новом блоке |
+| `emitMissed` | `boolean` | нет (по умолчанию `false`) | Вызывать ли пропущенные блоки (при лаге сети, быстрой генерации блоков и т.д.) |
+| `emitOnBegin` | `boolean` | нет (по умолчанию `false`) | Вызывать ли текущий номер блока сразу при подписке |
+| `poll` | `boolean` | нет | Использовать ли polling вместо WebSocket |
+| `pollingInterval` | `number` | нет | Интервал опроса (в мс), если используется polling |
+
+---
+
+## 🔁 Примеры параметров
+
+### `emitMissed`
+
+```ts
+publicClient.watchBlockNumber({
+  emitMissed: true,
+  onBlockNumber: blockNumber => console.log(blockNumber),
+})
+```
+
+### `emitOnBegin`
+
+```ts
+publicClient.watchBlockNumber({
+  emitOnBegin: true,
+  onBlockNumber: blockNumber => console.log(blockNumber),
+})
+```
+
+### `poll` (только для WebSocket-транспорта)
+
+```ts
+import { createPublicClient, webSocket } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: webSocket(),
+})
+
+publicClient.watchBlockNumber({
+  poll: true,
+  onBlockNumber: blockNumber => console.log(blockNumber),
+})
+```
+
+### `pollingInterval`
+
+```ts
+publicClient.watchBlockNumber({
+  pollingInterval: 12_000,
+  onBlockNumber: blockNumber => console.log(blockNumber),
+})
+```
+
+---
+
+## 🔗 JSON-RPC методы
+
+- При `poll: true` — используется `eth_blockNumber` на интервале
+- При `poll: false` и WebSocket — подписка через `eth_subscribe`, событие `"newHeads"`
+
+# viem – Public Actions: `watchBlocks`
+
+## Описание
+
+Подписывается на входящие блоки и возвращает полную информацию по каждому блоку.  
+Может работать через polling или WebSocket в зависимости от клиента.  
+Внутри использует `eth_getBlockByNumber` или `eth_subscribe`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+UnwatchFn
+```
+
+Функция для остановки подписки.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const unwatch = publicClient.watchBlocks({ 
+  onBlock: block => console.log(block)
+})
+
+// =>
+// {
+//   baseFeePerGas: 10789405161n,
+//   difficulty: 11569232145203128n,
+//   extraData: '0x75732d656173742d38',
+//   ...
+// }
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `onBlock` | `(block: Block) => void` | да | Колбэк, вызывается при каждом новом блоке |
+| `onError` | `(error: Error) => void` | нет | Колбэк на случай ошибки при получении блока |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет (по умолчанию `'latest'`) | Указывает, какие блоки отслеживать |
+| `emitMissed` | `boolean` | нет (по умолчанию `false`) | Эмитить ли пропущенные блоки при восстановлении соединения |
+| `emitOnBegin` | `boolean` | нет (по умолчанию `false`) | Эмитить ли блок при первой подписке |
+| `includeTransactions` | `boolean` | нет | Включать ли список транзакций в объект блока |
+| `poll` | `boolean` | нет | Использовать ли polling вместо WebSocket (для WebSocket клиентов) |
+| `pollingInterval` | `number` | нет | Интервал опроса в миллисекундах |
+
+---
+
+## 🔁 Примеры параметров
+
+### `onError`
+
+```ts
+publicClient.watchBlocks({
+  onBlock: block => console.log(block),
+  onError: error => console.log(error),
+})
+```
+
+### `blockTag`
+
+```ts
+publicClient.watchBlocks({
+  blockTag: 'safe',
+  onBlock: block => console.log(block),
+})
+```
+
+### `emitMissed`
+
+```ts
+publicClient.watchBlocks({
+  emitMissed: true,
+  onBlock: block => console.log(block),
+})
+```
+
+### `emitOnBegin`
+
+```ts
+publicClient.watchBlocks({
+  emitOnBegin: true,
+  onBlock: block => console.log(block),
+})
+```
+
+### `includeTransactions`
+
+```ts
+publicClient.watchBlocks({
+  includeTransactions: true,
+  onBlock: block => console.log(block),
+})
+```
+
+### `poll` (только WebSocket transport)
+
+```ts
+import { createPublicClient, webSocket } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: webSocket(),
+})
+
+publicClient.watchBlocks({
+  poll: true,
+  onBlock: block => console.log(block),
+})
+```
+
+### `pollingInterval`
+
+```ts
+publicClient.watchBlocks({
+  pollingInterval: 1_000,
+  onBlock: block => console.log(block),
+})
+```
+
+---
+
+## 🔗 JSON-RPC методы
+
+- При `poll: true` — используется `eth_getBlockByNumber` на интервале
+- При `poll: false` и WebSocket — подписка через `eth_subscribe`, событие `"newHeads"`
+
+# viem – Public Actions: `call`
+
+## Описание
+
+Выполняет message call без отправки транзакции в сеть.  
+Полезно для чтения состояния или симуляции выполнения.  
+Внутри вызывает JSON-RPC метод `eth_call`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+0x${string}
+```
+
+Результат вызова (ABI-encoded данные).
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient, account } from './config'
+
+const data = await publicClient.call({ 
+  account,
+  data: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `account` | `Account \| Address` | да | Адрес или аккаунт, с которого выполняется вызов |
+| `to` | `Address` | да (если нет `code`) | Контракт или адрес назначения |
+| `data` | `0x${string}` | да | Закодированный вызов функции контракта |
+| `accessList` | `AccessList` | нет | EIP-2930 Access List |
+| `blockNumber` | `number` | нет | Блок, на котором исполняется вызов |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет | Альтернатива `blockNumber` |
+| `code` | `0x${string}` | нет | Bytecode контракта (для Deployless Call) |
+| `factory` | `Address` | нет | Адрес фабрики для Deployless вызова |
+| `factoryData` | `0x${string}` | нет | Данные вызова на фабрику |
+| `gas` | `bigint` | нет | Лимит газа |
+| `gasPrice` | `bigint` | нет | Цена за газ (только для Legacy) |
+| `maxFeePerGas` | `bigint` | нет | Общая цена за газ (EIP-1559) |
+| `maxPriorityFeePerGas` | `bigint` | нет | Премия за приоритет (EIP-1559) |
+| `nonce` | `bigint` | нет | Уникальный номер транзакции |
+| `stateOverride` | `StateOverride` | нет | Эфемерные переопределения состояния |
+| `value` | `bigint` | нет | Кол-во ETH, отправляемое с вызовом |
+
+---
+
+## 🔁 Примеры
+
+### Deployless Call (через bytecode)
+
+```ts
+const data = await publicClient.call({
+  code: '0x...',
+  data: encodeFunctionData({
+    abi: parseAbi(['function name() view returns (string)']),
+    functionName: 'name'
+  }),
+})
+```
+
+### Deployless Call (через factory)
+
+```ts
+const data = await publicClient.call({
+  factory: '0xE8Df82fA4E10e6A12a9Dab552bceA2acd26De9bb',
+  factoryData: encodeFunctionData({
+    abi: parseAbi(['function createAccount(address owner, uint256 salt)']),
+    functionName: 'createAccount',
+    args: [owner, 0n],
+  }),
+  data: encodeFunctionData({
+    abi: parseAbi(['function entryPoint() view returns (address)']),
+    functionName: 'entryPoint'
+  }),
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+})
+```
+
+### С `stateOverride`
+
+```ts
+const data = await publicClient.call({
+  account,
+  to: '0x7099...79c8',
+  data: '0xc02aaa...',
+  stateOverride: [ 
+    { 
+      address: '0xa5cc...78AC', 
+      balance: parseEther('1'), 
+      stateDiff: [ 
+        { 
+          slot: '0x3ea2f1...',
+          value: '0x...01a4',
+        },
+      ], 
+    } 
+  ],
+})
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_call
+```
+
+# viem – Public Actions: `simulateCalls`
+
+## Описание
+
+Симулирует выполнение одного или нескольких вызовов (calls) в рамках одного блока.  
+Можно получить результаты вызовов и (опционально) изменения активов.  
+Внутри использует JSON-RPC метод `eth_simulateV1`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+SimulateCallsReturnType
+```
+
+Объект с результатами симуляции: `results`, `assetChanges` (если включено).
+
+---
+
+## ✅ Пример использования
+
+```ts
+const { results } = await client.simulateCalls({
+  account: '0x5a0b...',
+  calls: [
+    {
+      to: '0xcb98...',
+      value: parseEther('2'),
+    },
+    {
+      to: '0x7099...',
+      value: parseEther('1'),
+    },
+  ],
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `calls` | `Call[]` | да | Массив вызовов |
+| `account` | `Account \| Address` | нет | От чьего имени выполняются вызовы |
+| `blockNumber` | `bigint` | нет | Номер блока для симуляции |
+| `blockTag` | `BlockTag` | нет | Тег блока (`latest`, `pending` и т.д.) |
+| `stateOverrides` | `StateOverride[]` | нет | Эфемерные переопределения баланса/стейта |
+| `traceAssetChanges` | `boolean` | нет | Включить трейсинг изменений балансов |
+| `traceTransfers` | `boolean` | нет | Включить трейсинг переводов |
+| `validation` | `boolean` | нет | Включить режим валидации |
+
+---
+
+### Внутри `calls[]`
+
+| Подпараметр | Тип | Описание |
+|-------------|-----|----------|
+| `to` | `Address` | Адрес получателя вызова |
+| `data` | `Hex` | Закодированный вызов функции |
+| `value` | `bigint` | ETH, отправляемый с вызовом |
+| `abi`, `functionName`, `args` | см. примеры ниже | Можно использовать как вызов контракта |
+
+---
+
+## 📘 Поддержка вызовов контрактов
+
+```ts
+const abi = parseAbi([
+  'function mint()',
+  'function transfer(address, uint256) returns (bool)',
+])
+
+const { results } = await client.simulateCalls({
+  account: '0x5a0b...',
+  calls: [
+    { to: '0x7099...', value: parseEther('1') },
+    { to: '0xFBA3...', abi, functionName: 'mint' },
+    {
+      to: '0x95AD...',
+      abi,
+      functionName: 'transfer',
+      args: ['0xa5cc...', 100n],
+    },
+  ],
+})
+```
+
+---
+
+## 💰 Asset Changes
+
+```ts
+const { assetChanges } = await client.simulateCalls({
+  account: '0x5a0b...',
+  traceAssetChanges: true,
+  calls: [ { to: '0x7099...', value: parseEther('1.5') } ]
+})
+```
+
+---
+
+## 🧪 Пример чтения контракта
+
+```ts
+const abi = parseAbi([
+  'function totalSupply() returns (uint256)',
+  'function ownerOf(uint256) returns (address)',
+])
+
+const { results } = await client.simulateCalls({
+  calls: [
+    { to: '0xFBA3...', abi, functionName: 'totalSupply' },
+    { to: '0xFBA3...', abi, functionName: 'ownerOf', args: [69420n] },
+  ],
+})
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_simulateV1
+```
+# viem – Public Actions: `getChainId`
+
+## Описание
+
+Возвращает Chain ID текущей сети, к которой подключён клиент.  
+Соответствует вызову `eth_chainId` в JSON-RPC.
+
+---
+
+## 📦 Возвращает
+
+```ts
+number
+```
+
+Текущий Chain ID (например, `1` для Ethereum Mainnet).
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const chainId = await publicClient.getChainId()
+// => 1
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_chainId
+```
+
+# viem – Public Actions: `getEip712Domain`
+
+## Описание
+
+Читает EIP-712 домен из контракта согласно спецификации **ERC-5267**.  
+Также поддерживает чтение с помощью фабрики (deployless).
+
+---
+
+## 📦 Возвращает
+
+```ts
+GetEip712DomainReturnType
+```
+
+Объект с:
+- `domain`: структура домена
+- `fields`: дополнительные поля
+- `extensions`: поддерживаемые расширения
+
+---
+
+## ✅ Пример использования
+
+```ts
+const { domain, fields, extensions } = await publicClient.getEip712Domain({
+  address: '0x57ba3ec8df619d4d243ce439551cce713bb17411',
+})
+```
+
+---
+
+## 🧪 Counterfactual Call через factory
+
+Можно прочитать домен для контракта, который ещё не задеплоен:
+
+```ts
+const { domain, fields, extensions } = await publicClient.getEip712Domain({
+  address: '0x57ba3ec8df619d4d243ce439551cce713bb17411',
+  factory: '0xE8Df82fA4E10e6A12a9Dab552bceA2acd26De9bb',
+  factoryData: encodeFunctionData({
+    abi: factory.abi,
+    functionName: 'createAccount',
+    args: ['0x0000000000000000000000000000000000000000', 0n],
+  }),
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `address` | `string` | да | Адрес контракта, у которого читается домен |
+| `factory` | `string` | нет | Адрес фабрики (если контракт не задеплоен) |
+| `factoryData` | `string` | нет | Calldata для вызова фабрики |
+
+---
+
+## 🔗 Стандарты
+
+- EIP-712
+- ERC-5267
+
+# viem – Public Actions: `estimateFeesPerGas`
+
+## Описание
+
+Возвращает оценку комиссии **за газ** (в wei) для транзакции, чтобы она с высокой вероятностью попала в следующий блок.
+
+- Если в `chain.fees.estimateFeesPerGas` указаны значения — они используются.
+- Иначе:
+  - для **EIP-1559**: используется `baseFeePerGas` + `estimateMaxPriorityFeePerGas`
+  - для **Legacy**: используется `getGasPrice`
+
+---
+
+## 📦 Возвращает
+
+```ts
+// EIP-1559
+{
+  maxFeePerGas: bigint,
+  maxPriorityFeePerGas: bigint
+}
+
+// Legacy
+{
+  gasPrice: bigint
+}
+```
+
+---
+
+## ✅ Примеры использования
+
+### EIP-1559 (по умолчанию)
+
+```ts
+const {
+  maxFeePerGas,
+  maxPriorityFeePerGas
+} = await publicClient.estimateFeesPerGas()
+```
+
+### Legacy
+
+```ts
+const { gasPrice } = await publicClient.estimateFeesPerGas({
+  type: 'legacy'
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `chain` | `Chain` | нет | Переопределение сети (например, `optimism`) |
+| `type` | `"legacy" \| "eip1559"` | нет (по умолчанию: `"eip1559"`) | Тип оценки комиссии |
+
+---
+
+## 🔁 Пример с указанием сети
+
+```ts
+import { optimism } from 'viem/chains'
+
+const { maxFeePerGas, maxPriorityFeePerGas } =
+  await publicClient.estimateFeesPerGas({ chain: optimism })
+```
+
+---
+
+## 🔗 Используемые JSON-RPC вызовы
+
+- `eth_feeHistory`
+- `eth_gasPrice`
+
+# viem – Public Actions: `estimateGas`
+
+## Описание
+
+Оценивает, сколько газа потребуется для выполнения транзакции.  
+Выполняется локально, **без отправки транзакции в сеть**.  
+Внутри вызывает JSON-RPC метод `eth_estimateGas`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Оценка газа (в gas).
+
+---
+
+## ✅ Пример использования
+
+```ts
+const gas = await publicClient.estimateGas({ 
+  account: '0xf39f...',
+  to: '0x7099...',
+  value: parseEther('1'),
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `account` | `Account \| Address` | да | От чьего имени производится оценка |
+| `to` | `Address` | да (если нет `data`) | Получатель транзакции |
+| `value` | `bigint` | нет | Сумма ETH (в wei), отправляемая в транзакции |
+| `data` | `0x${string}` | нет | Закодированный вызов контракта или байткод |
+| `gasPrice` | `bigint` | нет | Только для Legacy |
+| `maxFeePerGas` | `bigint` | нет | Общая комиссия за gas (EIP-1559) |
+| `maxPriorityFeePerGas` | `bigint` | нет | Премия за приоритет (EIP-1559) |
+| `blockNumber` | `number` | нет | Оценка на конкретном блоке |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет | Альтернатива `blockNumber` |
+| `stateOverride` | `StateOverride[]` | нет | Эфемерные изменения состояния блокчейна |
+
+---
+
+## 🔁 Примеры параметров
+
+### С указанием `data`
+
+```ts
+const gas = await publicClient.estimateGas({
+  data: '0x...',
+  account: '0xf39f...',
+  to: '0x7099...',
+  value: parseEther('1')
+})
+```
+
+### С `gasPrice`
+
+```ts
+const gas = await publicClient.estimateGas({
+  gasPrice: parseGwei('20'),
+  account: '0xf39f...',
+  to: '0x7099...',
+  value: parseEther('1')
+})
+```
+
+### С `maxFeePerGas` и `maxPriorityFeePerGas`
+
+```ts
+const gas = await publicClient.estimateGas({
+  maxFeePerGas: parseGwei('20'),
+  maxPriorityFeePerGas: parseGwei('2'),
+  account: '0xf39f...',
+  to: '0x7099...',
+  value: parseEther('1')
+})
+```
+
+### С `stateOverride`
+
+```ts
+const gas = await publicClient.estimateGas({
+  account: '0xf39f...',
+  to: '0x7099...',
+  data: '0x...',
+  stateOverride: [{
+    address: '0xa5cc...',
+    balance: parseEther('1'),
+    stateDiff: [{
+      slot: '0x3ea2f1...',
+      value: '0x...01a4',
+    }],
+  }],
+})
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_estimateGas
+```
+# viem – Public Actions: `estimateMaxPriorityFeePerGas`
+
+## Описание
+
+Возвращает оценку максимальной приоритетной комиссии за газ (**maxPriorityFeePerGas**, в wei), чтобы транзакция попала в следующий блок.
+
+- Если в `chain.fees.defaultPriorityFee` задано значение, оно будет использовано.
+- В противном случае:
+  - если поддерживается `eth_maxPriorityFeePerGas` — используется он,
+  - иначе: вычисляется вручную на основе текущего `baseFeePerGas` + `gasPrice`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Оценка `maxPriorityFeePerGas` в wei.
+
+---
+
+## ✅ Пример использования
+
+```ts
+const maxPriorityFeePerGas = await publicClient.estimateMaxPriorityFeePerGas()
+// => 1_000_000_000n
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `chain` | `Chain` | нет | Переопределение сети (использует `fees.defaultPriorityFee` при наличии) |
+
+---
+
+## 🔁 Пример с указанием сети
+
+```ts
+import { optimism } from 'viem/chains'
+
+const maxPriorityFeePerGas = await publicClient.estimateMaxPriorityFeePerGas({
+  chain: optimism
+})
+```
+
+---
+
+## 🔗 JSON-RPC методы
+
+- `eth_maxPriorityFeePerGas` (если доступен)
+
+# viem – Public Actions: `getBlobBaseFee`
+
+## Описание
+
+Возвращает текущую базовую комиссию за BLOB (**blob base fee**, в wei).  
+Актуально для сетей с поддержкой EIP-4844.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Текущее значение blob base fee в wei.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { publicClient } from './client'
+
+const baseFee = await publicClient.getBlobBaseFee()
+// => например: 123456789n
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_blobBaseFee
+```
+
+# viem – Public Actions: `getFeeHistory`
+
+## Описание
+
+Возвращает исторические данные по gas fee: base fee, gas used, priority fee и др.  
+Метод полезен для анализа комиссии за несколько предыдущих блоков.
+
+Внутри используется JSON-RPC метод `eth_feeHistory`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+FeeHistory
+```
+
+История комиссий за газ по указанному диапазону блоков.
+
+---
+
+## ✅ Пример использования
+
+```ts
+const feeHistory = await publicClient.getFeeHistory({ 
+  blockCount: 4,
+  rewardPercentiles: [25, 75]
+})
+```
+
+---
+
+## Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `blockCount` | `number` | да | Кол-во блоков в истории (от 1 до 1024) |
+| `rewardPercentiles` | `number[]` | да | Массив процентилей, по которым извлекаются priority fees |
+| `blockNumber` | `number` | нет | Верхний блок диапазона (по номеру) |
+| `blockTag` | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` | нет | Верхний блок диапазона (по тегу, по умолчанию `latest`) |
+
+---
+
+## 🔁 Примеры параметров
+
+### Указание `blockNumber`
+
+```ts
+await publicClient.getFeeHistory({
+  blockCount: 4,
+  blockNumber: 1551231n,
+  rewardPercentiles: [25, 75],
+})
+```
+
+### Указание `blockTag`
+
+```ts
+await publicClient.getFeeHistory({
+  blockCount: 4,
+  blockTag: 'safe',
+  rewardPercentiles: [25, 75],
+})
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_feeHistory
+```
+
+# viem – Public Actions: `getGasPrice`
+
+## Описание
+
+Возвращает текущую цену газа (**gas price**, в wei).  
+Актуально для **Legacy-транзакций** или как базовая оценка для других операций.  
+Внутри использует JSON-RPC метод `eth_gasPrice`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+bigint
+```
+
+Цена газа в wei.
+
+---
+
+## ✅ Пример использования
+
+```ts
+const gasPrice = await publicClient.getGasPrice()
+// => 15_000_000_000n
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_gasPrice
+```
+
+# viem – Public Actions: `createBlockFilter`
+
+## Описание
+
+Создаёт **блочный фильтр**, который отслеживает новые хэши блоков.  
+Фильтр можно использовать вместе с `getFilterChanges` для получения новых блоков.  
+Внутри используется JSON-RPC метод `eth_newBlockFilter`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+{
+  id: string,
+  type: 'block'
+}
+```
+
+Фильтр типа `block`, идентификатор можно использовать в других действиях (`uninstallFilter`, `getFilterChanges`, и т.д.).
+
+---
+
+## ✅ Пример использования
+
+```ts
+const filter = await publicClient.createBlockFilter()
+// => { id: "0x345a6572337856574a76364e457a4366", type: "block" }
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_newBlockFilter
+```
+
+# viem – Public Actions: `createEventFilter`
+
+## Описание
+
+Создаёт **фильтр событий**, который можно использовать с `getFilterChanges` или `getFilterLogs`.  
+Поддерживает фильтрацию по адресу, событию, аргументам, блочному диапазону и другим параметрам.  
+Внутри используется JSON-RPC метод `eth_newFilter`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+{
+  id: string,
+  type: 'event'
+}
+```
+
+---
+
+## ✅ Пример: базовый
+
+```ts
+const filter = await publicClient.createEventFilter()
+// => { id: "0x...", type: "event" }
+```
+
+---
+
+## 🎯 Примеры с параметрами
+
+### 📌 По адресу
+
+```ts
+const filter = await publicClient.createEventFilter({
+  address: '0xfba3912c...'
+})
+```
+
+### 📌 По событию (через `parseAbiItem`)
+
+```ts
+const filter = await publicClient.createEventFilter({
+  address: '0xa0b8...',
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)')
+})
+```
+
+### 📌 По аргументам события
+
+```ts
+const filter = await publicClient.createEventFilter({
+  address: '0xa0b8...',
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)'),
+  args: {
+    from: '0xd8da6bf...',
+    to: '0xa5cc3c03...'
+  }
+})
+```
+
+### 📌 Аргументы как массив значений
+
+```ts
+args: {
+  from: [
+    '0xd8da6bf...',
+    '0xa5cc3c03...',
+    '0xa152f8bb...'
+  ]
+}
+```
+
+### 📌 Блочный диапазон
+
+```ts
+fromBlock: 16330000n,
+toBlock: 16330050n
+```
+
+### 📌 Несколько событий
+
+```ts
+events: parseAbi([
+  'event Approval(address indexed owner, address indexed sender, uint256 value)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)'
+])
+```
+
+---
+
+## 🧱 Strict Mode
+
+```ts
+strict: true
+```
+
+Если включен, вернёт только события с аргументами, полностью соответствующими ABI.
+
+---
+
+## 🛠 Параметры
+
+| Название | Тип | Описание |
+|----------|-----|----------|
+| `address` | `Address \| Address[]` | Адрес(а) контрактов |
+| `event` | `AbiEvent` | Событие в формате ABI |
+| `args` | `Record<string, any>` | Indexed аргументы события |
+| `fromBlock` | `bigint` | С какого блока начать отслеживание |
+| `toBlock` | `bigint` | До какого блока отслеживать |
+| `strict` | `boolean` | Строгая фильтрация событий (по ABI) |
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_newFilter
+```
+
+📌 Для работы с контрактами проще использовать: [`createContractEventFilter`](mdc:https:/viem.sh/docs/actions/public/createContractEventFilter.html)
+
+# viem – Public Actions: `createPendingTransactionFilter`
+
+## Описание
+
+Создаёт фильтр для отслеживания **хэшей неподтверждённых транзакций (pending transactions)**.  
+Можно использовать с `getFilterChanges`, чтобы получать новые pending-транзакции.  
+Внутри используется JSON-RPC метод `eth_newPendingTransactionFilter`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+{
+  id: string,
+  type: 'transaction'
+}
+```
+
+---
+
+## ✅ Пример использования
+
+```ts
+const filter = await publicClient.createPendingTransactionFilter()
+// => { id: "0x345a6572337856574a76364e457a4366", type: "transaction" }
+```
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_newPendingTransactionFilter
+```
+
+# viem – Public Actions: `getFilterChanges`
+
+## Описание
+
+Возвращает **изменения по фильтру** с момента последнего вызова.  
+Поддерживает фильтры, созданные через:
+
+- `createBlockFilter`
+- `createContractEventFilter`
+- `createEventFilter`
+- `createPendingTransactionFilter`
+
+Внутри используется JSON-RPC метод `eth_getFilterChanges`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+// Для блоков или pending транзакций:
+string[] // массив хэшей
+
+// Для событий (контрактных и обычных):
+Log[] // массив логов
+```
+
+---
+
+## ✅ Примеры использования
+
+### 🔹 Блоки
+
+```ts
+const filter = await publicClient.createBlockFilter()
+const hashes = await publicClient.getFilterChanges({ filter })
+// => ["0xabc123...", ...]
+```
+
+### 🔹 Контрактные события
+
+```ts
+const filter = await publicClient.createContractEventFilter({
+  address: '0xa0b8...',
+  abi: wagmiAbi,
+  eventName: 'Transfer'
+})
+const logs = await publicClient.getFilterChanges({ filter })
+// => [{ ... }, { ... }]
+```
+
+### 🔹 Сырые события (через parseAbiItem)
+
+```ts
+const filter = await publicClient.createEventFilter({
+  address: '0xa0b8...',
+  event: parseAbiItem('event Transfer(address indexed, address indexed, uint256)')
+})
+const logs = await publicClient.getFilterChanges({ filter })
+```
+
+### 🔹 Pending транзакции
+
+```ts
+const filter = await publicClient.createPendingTransactionFilter()
+const txHashes = await publicClient.getFilterChanges({ filter })
+// => ["0x123abc...", ...]
+```
+
+---
+
+## 🛠 Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `filter` | `Filter` | да | Фильтр, созданный ранее (например, `createEventFilter`) |
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_getFilterChanges
+```
+# viem – Public Actions: `getFilterLogs`
+
+## Описание
+
+Возвращает **все event-логи**, зафиксированные с момента создания фильтра.  
+Совместимо **только с event-фильтрами** (`createEventFilter`, `createContractEventFilter`).  
+Использует JSON-RPC метод `eth_getFilterLogs`.
+
+---
+
+## 📦 Возвращает
+
+```ts
+Log[]
+```
+
+Список логов (events), соответствующих фильтру.
+
+---
+
+## ✅ Пример использования
+
+```ts
+import { parseAbiItem } from 'viem'
+
+const filter = await publicClient.createEventFilter({
+  address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  event: parseAbiItem('event Transfer(address indexed, address indexed, uint256)'),
+})
+
+const logs = await publicClient.getFilterLogs({ filter })
+// => [{ ... }, { ... }]
+```
+
+---
+
+## 🛠 Параметры
+
+| Название | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `filter` | `Filter` | да | Фильтр, созданный через `createEventFilter` или `createContractEventFilter` |
+
+---
+
+## 📝 Примечания
+
+- В отличие от `getFilterChanges`, возвращает **все** логи с момента создания фильтра (а не только новые).
+- Не работает с блок-фильтрами и фильтрами pending транзакций.
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_getFilterLogs
+```
+# viem – Public Actions: `getLogs`
+
+## Описание
+
+Возвращает список event-логов, соответствующих заданным параметрам.  
+Внутри используется JSON-RPC метод `eth_getLogs`.
+
+По умолчанию возвращает **все события**, но на практике рекомендуется указывать фильтры (адрес, событие, аргументы, блоки).
+
+---
+
+## 📦 Возвращает
+
+```ts
+Log[]
+```
+
+---
+
+## ✅ Примеры
+
+### 🔹 Все события (не рекомендуется без фильтрации)
+
+```ts
+const logs = await publicClient.getLogs()
+```
+
+---
+
+### 🔹 По адресу
+
+```ts
+const logs = await publicClient.getLogs({
+  address: '0xfba3912c...'
+})
+```
+
+---
+
+### 🔹 По событию (через parseAbiItem)
+
+```ts
+const logs = await publicClient.getLogs({
+  address: '0xa0b8...',
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)')
+})
+```
+
+---
+
+### 🔹 С аргументами
+
+```ts
+const logs = await publicClient.getLogs({
+  address: '0xa0b8...',
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)'),
+  args: {
+    from: '0xd8da6bf...',
+    to: '0xa5cc3c03...'
+  }
+})
+```
+
+---
+
+### 🔹 Аргументы как массив
+
+```ts
+args: {
+  from: [
+    '0xd8da6bf...',
+    '0xa5cc3c03...',
+    '0xa152f8bb...'
+  ]
+}
+```
+
+---
+
+### 🔹 Диапазон блоков
+
+```ts
+fromBlock: 16330000n,
+toBlock: 16330050n
+```
+
+---
+
+### 🔹 По хэшу блока
+
+```ts
+blockHash: '0xabc123...'
+```
+
+---
+
+### 🔹 Несколько событий
+
+```ts
+events: parseAbi([
+  'event Approval(address indexed owner, address indexed sender, uint256 value)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)'
+])
+```
+
+> ❗️ При использовании `events`, нельзя использовать аргументы (`args`).
+
+---
+
+### 🔹 Strict mode
+
+```ts
+strict: true
+```
+
+Фильтрует события по точному соответствию ABI — `args` всегда будет определён.
+
+---
+
+## 🛠 Параметры
+
+| Название | Тип | Описание |
+|----------|-----|----------|
+| `address` | `Address \| Address[]` | Контракт(ы), откуда слушаются события |
+| `event` | `AbiEvent` | Событие в формате ABI |
+| `args` | `Record<string, any>` | Только для `indexed` аргументов |
+| `fromBlock` | `bigint \| 'latest' ...` | С какого блока начинать (взаимоисключимо с `blockHash`) |
+| `toBlock` | `bigint \| 'latest' ...` | До какого блока включительно (взаимоисключимо с `blockHash`) |
+| `blockHash` | `0x...` | Хэш блока (взаимоисключимо с from/toBlock) |
+| `strict` | `boolean` | Включает строгий режим аргументов |
+
+---
+
+## 🔗 JSON-RPC метод
+
+```
+eth_getLogs
+```
+# watchEvent
+
+Watches and returns emitted Event Logs. This Action will batch up all the Event Logs found within the `pollingInterval`, and invoke them via `onLogs`.
+
+If the RPC Provider does not support filters (`eth_newFilter`), `watchEvent` will fall back to using `getLogs`.
+
+---
+
+## Usage
+
+Watch all broadcasted events to the blockchain:
+
+```ts
+import { publicClient } from './client'
+import { wagmiAbi } from './abi'
+
+const unwatch = publicClient.watchEvent({
+  onLogs: logs => console.log(logs)
+})
+```
+
+### Output
+```ts
+> [{ ... }, { ... }, { ... }]
+> [{ ... }, { ... }]
+> [{ ... }, { ... }, { ... }, { ... }]
+```
+
+---
+
+## Scoping
+
+### By Address
+
+```ts
+const unwatch = publicClient.watchEvent({
+  address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  onLogs: logs => console.log(logs)
+})
+```
+
+### By Event
+
+```ts
+import { parseAbiItem } from 'viem'
+
+const unwatch = publicClient.watchEvent({
+  address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)'),
+  onLogs: logs => console.log(logs)
+})
+```
+
+You can also define the event inline:
+
+```ts
+const unwatch = publicClient.watchEvent({
+  address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  event: {
+    name: 'Transfer',
+    inputs: [
+      { type: 'address', indexed: true, name: 'from' },
+      { type: 'address', indexed: true, name: 'to' },
+      { type: 'uint256', indexed: false, name: 'value' },
+    ]
+  },
+  onLogs: logs => console.log(logs)
+})
+```
+
+---
+
+## Arguments
+
+You can filter by specific indexed arguments:
+
+```ts
+const unwatch = publicClient.watchEvent({
+  event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)'),
+  args: {
+    from: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+    to: '0xa5cc3c03994db5b0d9a5eedd10cabab0813678ac'
+  },
+  onLogs: logs => console.log(logs)
+})
+```
+
+Use arrays to match any in a list:
+```ts
+args: {
+  from: [
+    '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+    '0xa5cc3c03994db5b0d9a5eedd10cabab0813678ac',
+    '0xa152f8bb749c55e9943a3a0a3111d18ee2b3f94e',
+  ]
+}
+```
+
+---
+
+## Multiple Events
+
+```ts
+import { parseAbi } from 'viem'
+
+const unwatch = publicClient.watchEvent({
+  events: parseAbi([
+    'event Approval(address indexed owner, address indexed sender, uint256 value)',
+    'event Transfer(address indexed from, address indexed to, uint256 value)',
+  ]),
+  onLogs: logs => console.log(logs)
+})
+```
+
+> **Note:** You cannot use `args` when filtering multiple events.
+
+---
+
+## Parameters
+
+| Parameter        | Type                                      | Description |
+|------------------|-------------------------------------------|-------------|
+| `onLogs`         | `(logs: Log[]) => void`                   | Required. Callback to receive batched logs. |
+| `address`        | `Address \| Address[]`                    | Optional. Filter by contract address(es). |
+| `event`          | `AbiEvent`                                | Optional. Event definition to filter logs. |
+| `args`           | `Inferred`                                | Optional. Indexed argument values to filter. |
+| `batch`          | `boolean` (default: `true`)               | Optional. Whether to batch logs. |
+| `onError`        | `(error: Error) => void`                  | Optional. Error handler callback. |
+| `poll`           | `boolean`                                 | Optional. Force polling instead of subscription. |
+| `pollingInterval`| `number`                                  | Optional. Polling frequency in ms. |
+| `fromBlock`      | `bigint`                                  | Optional. Block number to start from. |
+
+---
+
+## Returns
+
+`UnwatchFn` – A function to stop watching logs.
+
+---
+
+## Transport Behavior
+
+| Transport Type      | Behavior |
+|---------------------|----------|
+| WebSocket + `poll: false` | Uses `eth_subscribe` with "logs" |
+| HTTP / `poll: true` | Uses `eth_newFilter` + `eth_getFilterChanges` |
+| No `eth_newFilter` support | Falls back to calling `eth_getLogs` block-by-block |
+
+---
+
+## Live Example
+
+```ts
+const unwatch = publicClient.watchEvent({
+  onLogs: logs => console.log(logs),
+  poll: true,
+  pollingInterval: 1000,
+  fromBlock: 1n,
+})
+```
+# uninstallFilter
+
+Destroys a Filter that was created from one of the following Actions:
+
+- `createBlockFilter`
+- `createEventFilter`
+- `createPendingTransactionFilter`
+
+---
+
+## Usage
+
+```ts
+import { publicClient } from './client'
+
+const filter = await publicClient.createPendingTransactionFilter()
+const uninstalled = await publicClient.uninstallFilter({ filter }) 
+// true
+```
+
+---
+
+## client.ts
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+---
+
+## Returns
+
+**Type:** `boolean`
+
+A boolean indicating if the Filter was successfully uninstalled.
+
+---
+
+## Parameters
+
+### filter
+
+- **Type:** `Filter`  
+  A filter object created by one of the `create*Filter` actions.
+
+```ts
+const filter = await publicClient.createPendingTransactionFilter()
+const uninstalled = await publicClient.uninstallFilter({
+  filter, 
+})
+```
+
+---
+
+## JSON-RPC Method
+
+**eth_uninstallFilter**
+
+# `getProof` – Viem Public Client
+
+## Overview
+
+Returns the account and storage values of the specified account including the Merkle-proof.
+
+---
+
+## 🧪 Usage
+
+### `example.ts`
+```ts
+import { publicClient } from './client'
+
+const proof = await publicClient.getProof({ 
+  address: '0x4200000000000000000000000000000000000016',
+  storageKeys: [
+    '0x4a932049252365b3eedbc5190e18949f2ec11f39d3bef2d259764799a1b27d99',
+  ],
+})
+```
+
+---
+
+### `client.ts`
+```ts
+import { createPublicClient, http } from 'viem'
+import { optimism } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: optimism,
+  transport: http()
+})
+```
+
+---
+
+## 🔁 Returns
+### `Proof`
+Proof data, including:
+- `address`: The account address.
+- `accountProof`: Array of Merkle proof strings for the account.
+- `balance`: Balance of the account.
+- `codeHash`: Hash of the contract's bytecode.
+- `nonce`: Number of sent transactions from the account.
+- `storageHash`: Hash root of the account storage.
+- `storageProof`: Array of objects containing:
+  - `key`: Storage key.
+  - `value`: Value at the key.
+  - `proof`: Merkle proof strings for the key.
+
+---
+
+## 🔧 Parameters
+
+| Name         | Type                                                                              | Required | Description                                      |
+|--------------|-----------------------------------------------------------------------------------|----------|--------------------------------------------------|
+| `address`    | `Address`                                                                         | ✅        | Address of the account to get proof for.         |
+| `storageKeys`| `Hash[]`                                                                           | ✅        | Array of storage keys to include in the proof.   |
+| `blockNumber`| `bigint`                                                                           | ❌        | Block number to get the proof at.                |
+| `blockTag`   | `'latest' \| 'earliest' \| 'pending' \| 'safe' \| 'finalized'` (default: `latest`) | ❌        | Block tag to use instead of block number.        |
+
+---
+
+## 🧾 Examples
+
+### With `blockNumber`
+```ts
+const proof = await publicClient.getProof({
+  address: '0x4200000000000000000000000000000000000016',
+  storageKeys: [
+    '0x4a932049252365b3eedbc5190e18949f2ec11f39d3bef2d259764799a1b27d99',
+  ],
+  blockNumber: 42069n
+})
+```
+
+### With `blockTag`
+```ts
+const proof = await publicClient.getProof({
+  address: '0x4200000000000000000000000000000000000016',
+  storageKeys: [
+    '0x4a932049252365b3eedbc5190e18949f2ec11f39d3bef2d259764799a1b27d99',
+  ],
+  blockTag: 'latest'
+})
+```
+
+---
+
+## 🔌 JSON-RPC Method
+- `eth_getProof`
+
+
+# verifyMessage – Viem Public Client Action
+
+Verifies that a message was signed by the provided address. Supports both EOAs and Smart Contract Accounts (via Account Abstraction).
+
+---
+
+## Why use this over `verifyMessage` util?
+
+This action supports verifying signatures from Smart Contract Accounts using `eth_call`, which `verifyMessage` util does not. This is especially useful as Account Abstraction becomes more common.
+
+---
+
+## Usage
+
+```ts
+import { account, walletClient, publicClient } from './client'
+
+const signature = await walletClient.signMessage({
+  account,
+  message: 'hello world',
+})
+
+const valid = await publicClient.verifyMessage({
+  address: account.address,
+  message: 'hello world',
+  signature,
+})
+// true
+```
+
+---
+
+## Client Setup
+
+```ts
+import { createPublicClient, createWalletClient, custom, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+
+export const walletClient = createWalletClient({
+  transport: custom(window.ethereum!)
+})
+
+// JSON-RPC Account
+export const [account] = await walletClient.getAddresses()
+// or for local account:
+// export const account = privateKeyToAccount(...)
+```
+
+---
+
+## Returns
+
+**Type:** `boolean`
+
+Whether the signed message is valid for the given address.
+
+---
+
+## Parameters
+
+### `address` (required)
+**Type:** `Address`  
+Ethereum address that signed the message.
+
+```ts
+address: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266'
+```
+
+---
+
+### `message` (required)
+**Type:** `string | { raw: Hex }`  
+The original message that was signed. Either UTF-8 string or raw hex.
+
+```ts
+message: 'hello world'
+// OR
+message: { raw: '0x68656c6c6f20776f726c64' }
+```
+
+---
+
+### `signature` (required)
+**Type:** `Hex | ByteArray | Signature`  
+The signature generated from signing the message.
+
+```ts
+signature: '0x66edc32e2ab...'
+```
+
+---
+
+### `blockNumber` (optional)
+**Type:** `bigint`  
+Used for Smart Contract Account signature verification. Block number to check contract deployment state.
+
+```ts
+blockNumber: 42069n
+```
+
+---
+
+### `blockTag` (optional)
+**Type:** `'latest' | 'earliest' | 'pending' | 'safe' | 'finalized'`  
+Default: `'latest'`  
+Used for Smart Contract Account verification.
+
+```ts
+blockTag: 'safe'
+```
+
+---
+
+## JSON-RPC Method
+
+Uses `eth_call` to a deployless universal signature validator contract.
+
+
+# verifyTypedData
+
+Verifies that typed data was signed by the provided address.
+
+## Why use this over `verifyTypedData` util?
+
+This action supports verifying typed data signed by either a **Smart Contract Account** or an **Externally Owned Account** (via ERC-6492). The `verifyTypedData` util only supports EOAs. This is crucial as wallets increasingly adopt **Account Abstraction**.
+
+---
+
+## Usage
+
+```ts
+import { account, walletClient, publicClient } from './client'
+import { domain, types } from './data'
+
+const message = {
+  from: {
+    name: 'Cow',
+    wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826',
+  },
+  to: {
+    name: 'Bob',
+    wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB',
+  },
+  contents: 'Hello, Bob!',
+}
+
+const signature = await walletClient.signTypedData({
+  account,
+  domain,
+  types,
+  primaryType: 'Mail',
+  message,
+})
+
+const valid = await publicClient.verifyTypedData({
+  address: account.address,
+  domain,
+  types,
+  primaryType: 'Mail',
+  message,
+  signature,
+})
+```
+
+---
+
+## Domain Definition
+
+```ts
+export const domain = {
+  name: 'Ether Mail',
+  version: '1',
+  chainId: 1,
+  verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC',
+} as const
+```
+
+---
+
+## Types Definition
+
+```ts
+export const types = {
+  Person: [
+    { name: 'name', type: 'string' },
+    { name: 'wallet', type: 'address' },
+  ],
+  Mail: [
+    { name: 'from', type: 'Person' },
+    { name: 'to', type: 'Person' },
+    { name: 'contents', type: 'string' },
+  ],
+} as const
+```
+
+---
+
+## Parameters
+
+- **address**: Ethereum address that signed the message
+- **domain**: Typed data domain
+- **types**: Type definitions of the message
+- **primaryType**: The primary object type being signed
+- **message**: The message object that was signed
+- **signature**: Signature that needs verification
+- **blockNumber** *(optional)*: Used for smart contract account signature validation
+- **blockTag** *(optional)*: Same purpose as blockNumber, accepts: `latest`, `earliest`, `pending`, `safe`, `finalized`
+
+---
+
+## Returns
+
+```ts
+boolean // true if the signature is valid, otherwise false
+```
+
+---
+
+## JSON-RPC Method
+
+Calls `eth_call` to a deployless universal signature validator contract.
+
+# prepareTransactionRequest
+
+Prepares a transaction request for signing by populating a nonce, gas limit, fee values, and a transaction type.
+
+---
+
+## Usage
+
+```ts
+import { account, walletClient } from './config'
+
+const request = await walletClient.prepareTransactionRequest({ 
+  account,
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  value: 1000000000000000000n
+})
+```
+
+Example response:
+
+```ts
+{
+  account: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+  to: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  maxFeePerGas: 150000000000n,
+  maxPriorityFeePerGas: 1000000000n,
+  nonce: 69,
+  type: 'eip1559',
+  value: 1000000000000000000n
+}
+```
+
+```ts
+const serializedTransaction = await walletClient.signTransaction(request)
+const hash = await walletClient.sendRawTransaction({ serializedTransaction })
+```
+
+---
+
+## Config Examples
+
+### JSON-RPC Account
+
+```ts
+import { createWalletClient, custom } from 'viem'
+const [account] = await window.ethereum.request({ method: 'eth_requestAccounts' })
+
+export const walletClient = createWalletClient({
+  account,
+  transport: custom(window.ethereum!)
+})
+```
+
+### Local Account
+
+```ts
+import { createWalletClient, http } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+
+export const walletClient = createWalletClient({
+  account: privateKeyToAccount('0x...'),
+  transport: http()
+})
+```
+
+---
+
+## Parameters
+
+- `account` (required): `Account | Address` — the sender.
+- `to`: recipient address.
+- `value`: amount of ETH in `wei`.
+- `accessList` (optional): Access list.
+- `authorizationList` (optional): Signed EIP-7702 authorizations.
+- `blobs` (optional): Blobs for blob transactions.
+- `chain` (optional): Target blockchain network.
+- `data` (optional): Encoded contract method call.
+- `gasPrice` (optional): Price per gas for legacy transactions.
+- `kzg` (optional): KZG instance for blob transactions.
+- `maxFeePerGas` / `maxPriorityFeePerGas` (optional): EIP-1559 fee values.
+- `nonce` (optional): Transaction nonce.
+- `nonceManager` (optional): Manage and increment nonce.
+- `parameters` (optional): Which parameters to prepare (`"fees" | "gas" | "nonce" | "type"`).
+- `value` (optional): ETH value in `wei`.
+
+---
+
+## References
+
+- [EIP-1559](mdc:https:/eips.ethereum.org/EIPS/eip-1559)
+- [EIP-7702 Overview](mdc:https:/eips.ethereum.org/EIPS/eip-7702)
+
+
+# getTransaction
+
+Returns information about a Transaction given a hash or block identifier.
+
+---
+
+## Usage
+
+**example.ts**
+
+```ts
+import { publicClient } from './client'
+
+const transaction = await publicClient.getTransaction({ 
+  hash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d'
+})
+```
+
+**Sample Output**
+```ts
+{
+  blockHash: '0xaf1dadb8a98f1282e8f7b42cc3da8847bfa2cf4e227b8220403ae642e1173088',
+  blockNumber: 15132008n,
+  from: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+  ...
+}
+```
+
+---
+
+**client.ts**
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+---
+
+## Returns
+
+**Type:** `Transaction`
+
+The transaction information.
+
+---
+
+## Parameters
+
+### `hash` (optional)
+
+**Type:** `'0x${string}'`
+
+Get information about a transaction given a transaction hash.
+
+```ts
+const transaction = await publicClient.getTransaction({
+  hash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d'
+})
+```
+
+---
+
+### `blockHash` (optional)
+
+**Type:** `'0x${string}'`
+
+Get information about a transaction given a block hash (and index).
+
+```ts
+const transaction = await publicClient.getTransaction({
+  blockHash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d', 
+  index: 0
+})
+```
+
+---
+
+### `blockNumber` (optional)
+
+**Type:** `bigint`
+
+Get information about a transaction given a block number (and index).
+
+```ts
+const transaction = await publicClient.getTransaction({
+  blockNumber: 69420n, 
+  index: 0
+})
+```
+
+---
+
+### `blockTag` (optional)
+
+**Type:** `'latest' | 'earliest' | 'pending' | 'safe' | 'finalized'`
+
+Get information about a transaction given a block tag (and index).
+
+```ts
+const transaction = await publicClient.getTransaction({
+  blockTag: 'safe', 
+  index: 0
+})
+```
+
+---
+
+### `index` (optional)
+
+**Type:** `number`
+
+An index to be used with a block identifier (number, hash or tag).
+
+```ts
+const transaction = await publicClient.getTransaction({
+  blockTag: 'safe',
+  index: 0
+})
+```
+
+---
+
+## Example
+
+Check out the usage of `getTransaction` in the live Fetching Transactions Example.
+
+---
+
+## JSON-RPC Method
+
+Calls `eth_getTransactionByHash`
+
+# getTransactionConfirmations
+
+Returns the number of blocks passed (confirmations) since the transaction was processed on a block.
+
+---
+
+## Usage
+
+### Example: Using Transaction Receipt
+
+```ts
+import { publicClient } from './client'
+ 
+const transactionReceipt = await publicClient.getTransactionReceipt({ hash: '...' })
+const confirmations = await publicClient.getTransactionConfirmations({  
+  transactionReceipt
+})
+// 15n
+```
+
+### client.ts
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+ 
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+### Example: Using Transaction Hash
+
+```ts
+import { publicClient } from './client'
+ 
+const confirmations = await publicClient.getTransactionConfirmations({  
+  hash: '0x...'
+})
+// 15n
+```
+
+---
+
+## Returns
+
+`bigint`
+
+The number of blocks passed since the transaction was processed. If confirmations is 0, then the transaction has not been confirmed and processed yet.
+
+---
+
+## Parameters
+
+### transactionReceipt (optional)
+- **Type**: `TransactionReceipt`
+- **Description**: The transaction receipt.
+
+```ts
+const balance = await publicClient.getTransactionConfirmations({
+  transactionReceipt: { ... }, 
+})
+```
+
+### hash (optional)
+- **Type**: `Hash`
+- **Description**: The hash of the transaction.
+
+```ts
+const balance = await publicClient.getTransactionConfirmations({
+  hash: '0x...'
+})
+```
+
+---
+
+## JSON-RPC Method
+
+Uses `eth_getTransactionConfirmations`
+
+# getTransactionReceipt
+
+Returns the Transaction Receipt given a Transaction hash.
+
+---
+
+## Usage
+
+```ts
+import { publicClient } from './client'
+
+const transaction = await publicClient.getTransactionReceipt({ 
+  hash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d'
+})
+// {
+//   blockHash: '0xaf1dadb8a98f1282e8f7b42cc3da8847bfa2cf4e227b8220403ae642e1173088',
+//   blockNumber: 15132008n,
+//   from: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+//   ...
+//   status: 'success',
+// }
+```
+
+---
+
+## client.ts
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+---
+
+## Returns
+
+**TransactionReceipt**  
+The transaction receipt.
+
+---
+
+## Parameters
+
+### `hash`  
+**Type:** `'0x${string}'`  
+A transaction hash.
+
+```ts
+const transaction = await publicClient.getTransactionReceipt({
+  hash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d'
+})
+```
+
+---
+
+## JSON-RPC Method
+
+**eth_getTransactionReceipt**
+
+# waitForTransactionReceipt
+
+Waits for the Transaction to be included on a Block (one confirmation), and then returns the Transaction Receipt.
+
+The `waitForTransactionReceipt` action additionally supports Replacement detection (e.g. sped up Transactions).
+
+---
+
+## Usage
+
+```ts
+import { publicClient } from './client'
+
+const transaction = await publicClient.waitForTransactionReceipt({ 
+  hash: '0x4ca7ee652d57678f26e887c149ab0735f41de37bcad58c9f6d3ed5824f15b74d'
+})
+```
+
+### Sample Output
+
+```json
+{
+  "blockHash": "0xaf1dadb8a98f1282e8f7b42cc3da8847bfa2cf4e227b8220403ae642e1173088",
+  "blockNumber": 15132008,
+  "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  ...
+  "status": "success"
+}
+```
+
+---
+
+## Setup
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+---
+
+## Returns
+
+**TransactionReceipt**
+
+The transaction receipt.
+
+---
+
+## Parameters
+
+### `hash` (required)
+**Type:** `0x${string}`  
+The transaction hash.
+
+---
+
+### `confirmations` (optional)
+**Type:** `number`  
+**Default:** `1`  
+The number of confirmations to wait before resolving.
+
+---
+
+### `onReplaced` (optional)
+**Type:** `({ reason: 'replaced' | 'repriced' | 'cancelled', replacedTransaction, transaction, transactionReceipt }) => void`  
+Callback invoked if the transaction has been replaced.
+
+---
+
+### `pollingInterval` (optional)
+**Type:** `number`  
+Polling frequency in milliseconds.
+
+---
+
+### `retryCount` (optional)
+**Type:** `number`  
+**Default:** `6`  
+Max retry attempts if the transaction or block is not found.
+
+---
+
+### `retryDelay` (optional)
+**Type:** `number | (({ count: number; error: Error }) => number)`  
+**Default:** `({ count }) => ~~(1 << count) * 200`  
+Delay between retries (supports exponential backoff).
+
+---
+
+### `timeout` (optional)
+**Type:** `number`  
+**Default:** `180_000`  
+Time (in ms) to wait before stopping polling.
+
+---
+
+## Notes
+
+- Transactions may be replaced due to nonce collisions or user actions (e.g., speed up or cancel).
+- Replacement reasons:
+  - `repriced`: gas parameters updated
+  - `cancelled`: value set to 0
+  - `replaced`: different data or value
+
+---
+
+## JSON-RPC Methods
+
+- Polls `eth_getTransactionReceipt` on every block.
+- If transaction is replaced:
+  - Fetches block via `eth_getBlockByNumber`
+  - Inspects for replacement via `eth_getTransactionReceipt`
+
+	# watchPendingTransactions
+
+Watches and returns pending transaction hashes.
+
+This Action will batch up all the pending transactions found within the `pollingInterval`, and invoke them via `onTransactions`.
+
+---
+
+## 📦 Usage
+
+```ts
+import { publicClient } from './client'
+
+const unwatch = publicClient.watchPendingTransactions({ 
+  onTransactions: hashes => console.log(hashes)
+})
+```
+
+Output examples:
+
+```
+['0x...', '0x...', '0x...']
+['0x...', '0x...']
+['0x...', '0x...', '0x...', ...]
+```
+
+### client.ts
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+```
+
+---
+
+## 🔁 Returns
+
+**`UnwatchFn`**  
+A function that can be invoked to stop watching for new pending transaction hashes.
+
+---
+
+## 🛠️ Parameters
+
+### `onTransactions`
+**Type:** `(hashes: '0x${string}'[]) => void`  
+The new pending transaction hashes.
+
+```ts
+const unwatch = publicClient.watchPendingTransactions({
+  onTransactions: hashes => console.log(hashes)
+})
+```
+
+---
+
+### `batch` (optional)  
+**Type:** `boolean`  
+**Default:** `true`  
+Whether or not to batch the transaction hashes between polling intervals.
+
+```ts
+const unwatch = publicClient.watchPendingTransactions({
+  batch: false,
+  onTransactions: hashes => console.log(hashes)
+})
+```
+
+---
+
+### `onError` (optional)  
+**Type:** `(error: Error) => void`  
+Callback to handle errors.
+
+```ts
+const unwatch = publicClient.watchPendingTransactions({
+  onError: error => console.log(error),
+  onTransactions: hashes => console.log(hashes)
+})
+```
+
+---
+
+### `poll` (optional)  
+**Type:** `boolean`  
+**Default:** `false` for WebSocket Clients, `true` for non-WebSocket Clients  
+Whether or not to use polling instead of a WebSocket subscription.
+
+```ts
+import { createPublicClient, webSocket } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: webSocket()
+})
+
+const unwatch = publicClient.watchPendingTransactions({
+  onTransactions: hashes => console.log(hashes),
+  poll: true
+})
+```
+
+---
+
+### `pollingInterval` (optional)  
+**Type:** `number`  
+Polling frequency in milliseconds.
+
+```ts
+const unwatch = publicClient.watchPendingTransactions({
+  pollingInterval: 1000,
+  onTransactions: hashes => console.log(hashes)
+})
+```
+
+---
+
+## 🔌 JSON-RPC Methods
+
+- When `poll: true`:
+  - Calls `eth_newPendingTransactionFilter` on init
+  - Calls `eth_getFilterChanges` on each interval
+- When `poll: false` with WebSocket:
+  - Uses `eth_subscribe` with `newPendingTransactions` event
+
+	# Introduction to Wallet Actions
+
+Wallet Actions are actions that map one-to-one with a "wallet" or "signable" Ethereum RPC method (`eth_requestAccounts`, `eth_sendTransaction`, etc). They are used with a **Wallet Client**.
+
+Wallet Actions require special permissions and provide signing capabilities. Examples of Wallet Actions include:
+
+- Retrieving the user's account addresses
+- Sending a transaction
+- Signing a message
+
+These actions provide a secure and flexible way to access the user's accounts and perform operations on the Ethereum network. They are commonly used by dapps and applications that need to:
+
+- Execute transactions
+- Interact with smart contracts
+- Sign messages
+
+---
+
+## `getAddresses`
+
+### Returns a list of account addresses owned by the wallet or client.
+
+### Usage
+
+```ts
+import { walletClient } from './client'
+
+const accounts = await walletClient.getAddresses()
+// ['0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC']
+```
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+### Returns
+
+`Address[]`
+
+A list of checksummed addresses.
+
+### JSON-RPC Method
+
+- `eth_accounts`
+
+
+# requestAddresses
+
+Requests a list of accounts managed by a wallet.
+
+`requestAddresses` sends a request to the wallet, asking for permission to access the user's accounts. After the user accepts the request, it will return a list of accounts (addresses).
+
+This API can be useful for dapps that need to access the user's accounts in order to execute transactions or interact with smart contracts.
+
+---
+
+## Usage
+
+### example.ts
+
+```ts
+import { walletClient } from './client'
+
+const accounts = await walletClient.requestAddresses()
+// ['0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC']
+```
+
+---
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+---
+
+## Returns
+
+**Type**: `Address[]`
+
+A list of checksummed addresses.
+
+---
+
+## JSON-RPC Method
+
+- `eth_requestAccounts`
+
+# watchAsset
+
+Requests that the user tracks the token in their wallet. Returns a boolean indicating if the token was successfully added.
+
+## Usage
+
+```ts
+import { walletClient } from './client'
+
+const success = await walletClient.watchAsset({ 
+  type: 'ERC20',
+  options: {
+    address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    decimals: 18,
+    symbol: 'WETH',
+  },
+})
+```
+
+## client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+## Returns
+
+**boolean** – Boolean indicating if the token was successfully added.
+
+## Parameters
+
+### type
+
+**Type:** `string`  
+Token type.
+
+### options.address
+
+**Type:** `Address`  
+The address of the token contract.
+
+### options.decimals
+
+**Type:** `number`  
+The number of token decimals.
+
+### options.symbol
+
+**Type:** `string`  
+A ticker symbol or shorthand, up to 11 characters.
+
+### options.image (optional)
+
+**Type:** `string`  
+A string url of the token logo.
+
+## Example
+
+```ts
+const success = await walletClient.watchAsset({
+  type: 'ERC20',
+  options: {
+    address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    decimals: 18,
+    symbol: 'WETH',
+    image: 'https://weth.com/icon.png',
+  }
+})
+```
+
+## JSON-RPC Method
+
+**wallet_watchAsset**
+
+# addChain
+
+Adds an EVM chain to the wallet.
+
+## Usage
+
+```ts
+import { avalanche } from 'viem/chains'
+import { walletClient } from './client'
+
+await walletClient.addChain({ chain: avalanche })
+```
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+## Parameters
+
+### chain
+- **Type:** `Chain`  
+- **Description:** The chain to add to the wallet.
+
+## JSON-RPC Methods
+
+- `wallet_addEthereumChain`
+
+# switchChain
+
+Switch the target chain in a wallet.
+
+## Usage
+
+### example.ts
+
+```ts
+import { avalanche } from 'viem/chains'
+import { walletClient } from './client'
+
+await walletClient.switchChain({ id: avalanche.id })
+```
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+## Parameters
+
+### id
+- **Type:** `number`
+- **Description:** The Chain ID.
+
+## JSON-RPC Methods
+
+- `eth_switchEthereumChain`
+
+# signMessage
+
+Calculates an Ethereum-specific signature in EIP-191 format:  
+`keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)`
+
+---
+
+## With the calculated signature, you can:
+- Use `verifyMessage` to verify the signature
+- Use `recoverMessageAddress` to recover the signing address from a signature
+
+---
+
+## Usage
+
+```ts
+import { account, walletClient } from './config'
+
+const signature_1 = await walletClient.signMessage({ 
+  account,
+  message: 'hello world',
+})
+// Output:
+"0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b"
+
+const signature_2 = await walletClient.signMessage({
+  account,
+  message: { raw: '0x68656c6c6f20776f726c64' },
+})
+// Output:
+"0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b"
+```
+
+---
+
+## config.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+
+export const [account] = await walletClient.getAddresses()
+// JSON-RPC Account
+
+// Local Account:
+// export const account = privateKeyToAccount(...)
+```
+
+---
+
+## Account Hoisting
+
+You can hoist the account on the Wallet Client:
+
+```ts
+import { walletClient } from './config'
+
+const signature = await walletClient.signMessage({ 
+  message: 'hello world',
+})
+```
+
+---
+
+## Parameters
+
+### account
+- **Type**: `Account | Address`  
+- The account to sign with (JSON-RPC or local account)
+
+### message
+- **Type**: `string | { raw: Hex | ByteArray }`  
+- The message to sign  
+- Use `raw` to sign data as hex
+
+---
+
+## Returns
+
+- **Type**: `Hex`  
+- The signed message
+
+---
+
+## JSON-RPC Methods
+
+- **JSON-RPC Accounts**: `personal_sign`
+- **Local Accounts**: Signs locally (no JSON-RPC request)
+
+# signTypedData
+
+Signs typed data and calculates an Ethereum-specific signature in [EIP-712](mdc:https:/eips.ethereum.org/EIPS/eip-712):  
+`sign(keccak256("\x19\x01" ‖ domainSeparator ‖ hashStruct(message)))`
+
+---
+
+## Usage
+
+```ts
+import { account, walletClient } from './config'
+import { domain, types } from './data'
+
+const signature = await walletClient.signTypedData({
+  account,
+  domain,
+  types,
+  primaryType: 'Mail',
+  message: {
+    from: {
+      name: 'Cow',
+      wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826',
+    },
+    to: {
+      name: 'Bob',
+      wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB',
+    },
+    contents: 'Hello, Bob!',
+  },
+})
+```
+
+---
+
+## `data.ts`
+
+```ts
+export const domain = {
+  name: 'Ether Mail',
+  version: '1',
+  chainId: 1,
+  verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC',
+} as const
+
+export const types = {
+  Person: [
+    { name: 'name', type: 'string' },
+    { name: 'wallet', type: 'address' },
+  ],
+  Mail: [
+    { name: 'from', type: 'Person' },
+    { name: 'to', type: 'Person' },
+    { name: 'contents', type: 'string' },
+  ],
+} as const
+```
+
+---
+
+## `config.ts`
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+
+export const [account] = await walletClient.getAddresses()
+```
+
+---
+
+## Returns
+
+- **Type:** `0x${string}`  
+  The signed EIP-712 typed data as a hex string.
+
+---
+
+## Parameters
+
+### `account`
+- **Type:** `Account | Address`  
+- Ethereum account used for signing.
+
+### `domain`
+- **Type:** `TypedDataDomain`  
+- Domain configuration used in the EIP-712 signature.
+
+### `types`
+- **Type:** `Record<string, { name: string; type: string }[]>`  
+- EIP-712 type definitions.
+
+### `primaryType`
+- **Type:** `string`  
+- The root type of the `message` object.
+
+### `message`
+- **Type:** object  
+- The actual data to be signed.
+
+---
+
+## JSON-RPC Methods
+
+- **JSON-RPC Accounts:** `eth_signTypedData_v4`
+- **Local Accounts:** Signs locally, no RPC.
+
+---
+
+## Example Output
+
+```ts
+"0x..."
+```
+
+---
+
+## Live Example
+
+Check out the usage of `signTypedData` in the live Sign Typed Data Example.
+
+# `getPermissions`
+
+Returns the wallet’s current permissions.
+
+## 📘 Usage
+
+```ts
+import { walletClient } from './client'
+
+const permissions = await walletClient.getPermissions()
+```
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+## ✅ Returns
+
+`WalletPermission[]`  
+The wallet permissions.
+
+---
+
+## 📡 JSON-RPC Methods
+
+- `wallet_getPermissions`
+
+# requestPermissions
+
+Requests permissions for a wallet.
+
+## Usage
+
+### example.ts
+
+```ts
+import { walletClient } from './client'
+
+const permissions = await walletClient.requestPermissions({ eth_accounts: {} })
+```
+
+### client.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+```
+
+## Returns
+
+**WalletPermission[]**
+
+The wallet permissions.
+
+## JSON-RPC Methods
+
+**wallet_requestPermissions**
+
+# prepareTransactionRequest
+
+Prepares a transaction request for signing by populating a nonce, gas limit, fee values, and a transaction type.
+
+## Usage
+
+### example.ts
+
+```ts
+import { account, walletClient } from './config'
+ 
+const request = await walletClient.prepareTransactionRequest({ 
+  account,
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  value: 1000000000000000000n
+})
+```
+
+```ts
+{
+  account: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+  to: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  maxFeePerGas: 150000000000n,
+  maxPriorityFeePerGas: 1000000000n,
+  nonce: 69,
+  type: 'eip1559',
+  value: 1000000000000000000n
+}
+```
+
+```ts
+const serializedTransaction = await walletClient.signTransaction(request)
+const hash = await walletClient.sendRawTransaction({ serializedTransaction })
+```
+
+### config.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { mainnet } from 'viem/chains'
+ 
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+
+// JSON-RPC Account
+export const account = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266'
+
+// Local Account
+// export const account = privateKeyToAccount(...)
+```
+
+## Account Hoisting
+
+If you do not wish to pass an account to every prepareTransactionRequest, you can also hoist the Account on the Wallet Client.
+
+### example.ts
+
+```ts
+import { walletClient } from './config'
+
+const request = await walletClient.prepareTransactionRequest({ 
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  value: 1000000000000000000n
+})
+```
+
+## Parameters
+
+- `account`: Account | Address — The account to send the transaction from.
+- `to`: 0x${string} — The transaction recipient.
+- `accessList`: AccessList (optional)
+- `authorizationList`: AuthorizationList (optional)
+- `blobs`: Hex[] (optional)
+- `chain`: Chain (optional)
+- `data`: 0x${string} (optional)
+- `gasPrice`: bigint (optional)
+- `kzg`: KZG (optional)
+- `maxFeePerGas`: bigint (optional)
+- `maxPriorityFeePerGas`: bigint (optional)
+- `nonce`: number (optional)
+- `nonceManager`: NonceManager | undefined (optional)
+- `parameters`: ("fees" | "gas" | "nonce" | "type")[] (optional)
+- `value`: bigint (optional)
+
+## Returns
+
+TransactionRequest — The transaction request.
+
+## JSON-RPC Method
+
+Depends on walletClient transport and account type.
+
+# sendRawTransaction
+
+Sends a signed transaction to the network. Can be used with both Public Clients and Wallet Clients.
+
+---
+
+## Usage
+
+**example.ts**
+```ts
+import { account, walletClient } from './config'
+
+const request = await walletClient.prepareTransactionRequest({
+  account,
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  value: 1000000000000000000n
+})
+
+const serializedTransaction = await walletClient.signTransaction(request)
+
+const hash = await walletClient.sendRawTransaction({ serializedTransaction })
+```
+
+**config.ts**
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+
+export const [account] = await walletClient.getAddresses()
+// ↑ JSON-RPC Account
+
+// export const account = privateKeyToAccount(...)
+// ↑ Local Account
+```
+
+---
+
+## Returns
+
+**Hash**
+
+The Transaction hash.
+
+---
+
+## Parameters
+
+### `serializedTransaction`
+- **Type:** `Hex`
+- The signed serialized transaction.
+
+**Example:**
+```ts
+const signature = await walletClient.sendRawTransaction({
+  serializedTransaction: '0x02f850018203118080825208808080c080a04012522854168b27e5dc3d5839bab5e6b39e1a0ffd343901ce1622e3d64b48f1a04e00902ae0502c4728cbf12156290df99c3ed7de85b1dbfe20b5c36931733a33'
+})
+```
+
+# signTransaction
+
+Signs a transaction.
+
+## Usage
+
+```ts
+import { account, walletClient } from './config'
+
+const request = await walletClient.prepareTransactionRequest({
+  account,
+  to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  value: 1000000000000000000n
+})
+
+const signature = await walletClient.signTransaction(request)
+// 0x02f850018203118080825208808080c080a04012522854...
+
+const hash = await walletClient.sendRawTransaction(signature)
+```
+
+## config.ts
+
+```ts
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(window.ethereum!),
+})
+
+export const [account] = await walletClient.getAddresses()
+```
+
+## Returns
+
+**Type**: `Hex`  
+The signed serialized transaction.
+
+## Parameters
+
+### account
+
+**Type**: `Account | Address`  
+The Account to send the transaction from.
+
+### to
+
+**Type**: `0x${string}`  
+The transaction recipient or contract address.
+
+### accessList (optional)
+
+**Type**: `AccessList`
+
+### authorizationList (optional)
+
+**Type**: `AuthorizationList`
+
+### blobs (optional)
+
+**Type**: `Hex[]`
+
+### chain (optional)
+
+**Type**: `Chain`
+
+### data (optional)
+
+**Type**: `0x${string}`
+
+### gasPrice (optional)
+
+**Type**: `bigint`
+
+### kzg (optional)
+
+**Type**: `KZG`
+
+### maxFeePerGas (optional)
+
+**Type**: `bigint`
+
+### maxPriorityFeePerGas (optional)
+
+**Type**: `bigint`
+
+### nonce (optional)
+
+**Type**: `number`
+
+### value (optional)
+
+**Type**: `bigint`
+
+# Introduction to Test Actions
+
+Test Actions in **viem** are specialized tools for simulating and testing Ethereum blockchain behavior. These actions correspond directly to test RPC methods such as `evm_mine`, `anvil_setBalance`, `anvil_impersonate`, and others. They're designed to work with a **Test Client**.
+
+## Overview
+
+Test Actions allow developers to:
+- Simulate blockchain behavior
+- Modify chain state
+- Mimic user interactions without private keys
+- Test contract execution under various conditions
+
+They're commonly used in development and QA environments to ensure smart contracts and dapps behave correctly before deployment.
+
+---
+
+## `impersonateAccount`
+
+Impersonates a given account or contract address. This enables sending transactions from that account without owning the private key.
+
+### Usage
+
+```ts
+import { testClient } from './client'
+
+await testClient.impersonateAccount({ 
+  address: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC'
+})
+```
+
+### Parameters
+
+- **address** (Address): The address of the account to impersonate.
+
+```ts
+await testClient.impersonateAccount({
+  address: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+})
+```
+
+---
+
+## `setBalance`
+
+Manually sets the balance of an account.
+
+### Usage
+
+```ts
+import { parseEther } from 'viem'
+import { testClient } from './client'
+
+await testClient.setBalance({ 
+  address: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: parseEther('1')
+})
+```
+
+### Parameters
+
+- **address** (Address): The target account's address.
+- **value** (optional, bigint): The new balance in wei.
+
+```ts
+await testClient.setBalance({
+  address: '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC',
+  value: 1000000000000000000n
+})
+```
+
+---
+
+## Client Setup
+
+```ts
+import { createTestClient, http } from 'viem'
+import { foundry } from 'viem/chains'
+
+export const testClient = createTestClient({
+  chain: foundry,
+  mode: 'anvil',
+  transport: http(),
+})
+```
+
+# viem Account Types
+
+This document outlines the various ways to create and use accounts in the `viem` library.
+
+---
+
+## JSON-RPC Account
+
+A JSON-RPC Account defers signing of transactions & messages to the external wallet (e.g. MetaMask, WalletConnect).
+
+### Usage
+
+```ts
+import 'viem/window'
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const [address] = await window.ethereum.request({ method: 'eth_requestAccounts' })
+
+const client = createWalletClient({
+  account: address,
+  chain: mainnet,
+  transport: custom(window.ethereum!)
+})
+```
+
+---
+
+## privateKeyToAccount
+
+Creates a Private Key Account.
+
+```ts
+import { privateKeyToAccount } from 'viem/accounts'
+
+const account = privateKeyToAccount('0x...')
+```
+
+### Generating a Private Key
+
+```ts
+import { generatePrivateKey } from 'viem/accounts'
+
+const privateKey = generatePrivateKey()
+```
+
+---
+
+## mnemonicToAccount
+
+Creates an HD Account from a BIP-39 mnemonic.
+
+```ts
+import { mnemonicToAccount } from 'viem/accounts'
+
+const account = mnemonicToAccount('legal winner thank year ...')
+```
+
+### Generating a Mnemonic
+
+```ts
+import { english, generateMnemonic } from 'viem/accounts'
+
+const mnemonic = generateMnemonic(english)
+```
+
+### Options
+
+- `accountIndex`: number — default: 0
+- `addressIndex`: number — default: 0
+- `changeIndex`: number — default: 0
+- `path`: string — custom BIP-44 path
+
+---
+
+## hdKeyToAccount
+
+Creates an account from a HDKey instance.
+
+```ts
+import { HDKey, hdKeyToAccount } from 'viem/accounts'
+
+const hdKey = HDKey.fromMasterSeed(...)
+const account = hdKeyToAccount(hdKey)
+```
+
+### Options
+
+- `accountIndex`, `addressIndex`, `changeIndex`, `path`
+
+---
+
+## toAccount
+
+Create an account with custom sign logic.
+
+```ts
+import {
+  signMessage,
+  signTransaction,
+  signTypedData,
+  toAccount
+} from 'viem/accounts'
+
+const account = toAccount({
+  address: '0x...',
+  async signMessage({ message }) {
+    return signMessage({ message, privateKey })
+  },
+  async signTransaction(tx, { serializer }) {
+    return signTransaction({ transaction: tx, serializer, privateKey })
+  },
+  async signTypedData(typedData) {
+    return signTypedData({ ...typedData, privateKey })
+  }
+})
+```
+
+---
+
+## Notes
+
+- **JSON-RPC Accounts** use browser wallet providers.
+- **Private Key**, **Mnemonic**, and **HDKey Accounts** are suitable for server-side/local signing.
+- **Custom Accounts** are great for abstracting signing logic or plugging into HSMs.
+
+# `createNonceManager` – Nonce Management Utility
+
+Creates a Nonce Manager for automatic nonce generation for Local Accounts.
+
+---
+
+## Description
+
+`createNonceManager` is a utility provided by `viem` to help with nonce management in Local Accounts (e.g. private key or mnemonic-based accounts). It ensures that nonces are tracked and incremented correctly across concurrent transactions.
+
+A `NonceManager` can only be used with **Local Accounts**.
+
+---
+
+## Import
+
+```ts
+import { createNonceManager } from 'viem/nonce'
+```
+
+---
+
+## Usage
+
+### Basic Example with JSON-RPC source
+
+```ts
+import { createNonceManager, jsonRpc } from 'viem/nonce'
+
+const nonceManager = createNonceManager({
+  source: jsonRpc()
+})
+```
+
+You can also use the default exported `nonceManager`:
+
+```ts
+import { nonceManager } from 'viem'
+```
+
+---
+
+## Integration with Local Accounts
+
+```ts
+import { privateKeyToAccount, nonceManager } from 'viem/accounts'
+import { client } from './config'
+
+const account = privateKeyToAccount('0x...', { nonceManager })
+
+const hashes = await Promise.all([
+  client.sendTransaction({
+    account,
+    to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+    value: parseEther('0.1'),
+  }),
+  client.sendTransaction({
+    account,
+    to: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+    value: parseEther('0.2'),
+  }),
+])
+```
+
+---
+
+## `config.ts` Example
+
+```ts
+import { createWalletClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+export const client = createWalletClient({
+  chain: mainnet,
+  transport: http(),
+})
+```
+
+---
+
+## Return Type
+
+**`NonceManager`**
+
+An instance that can be passed to `privateKeyToAccount`.
+
+---
+
+## Parameters
+
+### `source`
+
+- **Type**: `NonceManagerSource`
+- **Description**: The source of truth for retrieving the current nonce of an account.
+
+#### Available Sources
+
+- `jsonRpc`
+
+```ts
+import { createNonceManager, jsonRpc } from 'viem/nonce'
+
+const nonceManager = createNonceManager({
+  source: jsonRpc()
+})
+```
+
+---
+
+# Local Account Signing – viem
+
+## signMessage
+
+Signs a message using the Account's private key (EIP-191).
+
+### Usage
+
+```ts
+import { privateKeyToAccount } from 'viem/accounts'
+
+const account = privateKeyToAccount('0x...')
+
+const signature = await account.signMessage({
+  message: { raw: '0x68656c6c6f20776f726c64' },
+})
+```
+
+### Parameters
+
+- **message** (`string` | `{ raw: Hex | ByteArray }`): Message to sign.
+
+### Returns
+
+- `Hex`: The signed message.
+
+
+## signTransaction
+
+Signs a transaction using the Account's private key.
+
+### Usage
+
+```ts
+import { parseGwei } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+
+const account = privateKeyToAccount('0x...')
+
+const signature = await account.signTransaction({
+  chainId: 1,
+  maxFeePerGas: parseGwei('20'),
+  maxPriorityFeePerGas: parseGwei('3'),
+  gas: 21000n,
+  nonce: 69,
+  to: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266'
+})
+```
+
+### Parameters (Optional)
+
+- **accessList**, **authorizationList**, **blobs**, **data**
+- **chainId**, **gas**, **gasPrice**
+- **kzg**, **maxFeePerGas**, **maxPriorityFeePerGas**
+- **nonce**, **to**, **type**, **value**
+
+### Returns
+
+- `Hex`: The signed transaction.
+
+---
+
+## signTypedData
+
+Signs structured data using the Account's private key (EIP-712).
+
+### Usage
+
+```ts
+import { privateKeyToAccount } from 'viem/accounts'
+import { domain, types } from './data'
+
+const account = privateKeyToAccount('0x...')
+
+const signature = await account.signTypedData({
+  domain,
+  types,
+  primaryType: 'Mail',
+  message: {
+    from: { name: 'Cow', wallet: '0xCD2a...826' },
+    to: { name: 'Bob', wallet: '0xbBbB...BbB' },
+    contents: 'Hello, Bob!',
+  },
+})
+```
+
+### Parameters
+
+- **domain**: Typed data domain
+- **types**: Typed data types
+- **primaryType**: Type used to extract message
+- **message**: Data to sign
+
+### Returns
+
+- `0x${string}`: The signature
+
+# viem Chains Documentation
+
+## Overview
+
+The `viem/chains` entrypoint contains references to popular EVM-compatible chains such as Polygon, Optimism, Avalanche, Base, Zora, and more.
+
+## Usage
+
+```ts
+import { createPublicClient, http } from 'viem'
+import { zora } from 'viem/chains'
+
+const client = createPublicClient({
+  chain: zora, 
+  transport: http()
+})
+```
+
+See the list of supported chains in the official documentation.
+
+## Custom Chains
+
+You can define your own chain with `defineChain`:
+
+```ts
+import { defineChain } from 'viem'
+
+export const zora = defineChain({
+  id: 7777777,
+  name: 'Zora',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'Ether',
+    symbol: 'ETH',
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.zora.energy'],
+      webSocket: ['wss://rpc.zora.energy'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Explorer', url: 'https://explorer.zora.energy' },
+  },
+  contracts: {
+    multicall3: {
+      address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      blockCreated: 5882,
+    },
+  },
+})
+```
+
+---
+
+## Fees
+
+### Usage
+
+```ts
+import { defineChain } from 'viem'
+
+export const example = defineChain({
+  fees: { 
+    baseFeeMultiplier: 1.2, 
+    defaultPriorityFee: parseGwei('0.01'), 
+  }
+})
+```
+
+### API
+
+- **baseFeeMultiplier**  
+  Type: `number` or `({ block, request }) => number | Promise<number>`  
+  Default: `1.2`
+
+- **defaultPriorityFee**  
+  Type: `number` or `({ block, request }) => bigint | Promise<bigint>`
+
+- **estimateFeesPerGas**  
+  Type: `({ client, multiply, type, block, request }) => Promise<EstimateFeesPerGasResponse>`
+
+---
+
+## Formatters
+
+```ts
+import {
+  defineBlock,
+  defineChain,
+  defineTransaction,
+  defineTransactionReceipt,
+  defineTransactionRequest
+} from 'viem'
+```
+
+### formatters.block
+
+```ts
+defineBlock({
+  exclude: ['difficulty'],
+  format(args) {
+    return {
+      secondaryFee: hexToBigInt(args.secondaryFee)
+    }
+  },
+})
+```
+
+### formatters.transaction
+
+```ts
+defineTransaction({
+  exclude: ['gasPrice'],
+  format(args) {
+    return {
+      mint: hexToBigInt(args.mint)
+    }
+  },
+})
+```
+
+### formatters.transactionReceipt
+
+```ts
+defineTransactionReceipt({
+  exclude: ['effectiveGasPrice'],
+  format(args) {
+    return {
+      l1Fee: hexToBigInt(args.l1Fee)
+    }
+  },
+})
+```
+
+### formatters.transactionRequest
+
+```ts
+defineTransactionRequest({
+  exclude: ['effectiveGasPrice'],
+  format(args) {
+    return {
+      secondaryFee: numberToHex(args.secondaryFee)
+    }
+  },
+})
+```
+
+---
+
+## Serializers
+
+```ts
+import { defineChain, serializeTransaction } from 'viem'
+
+const example = defineChain({
+  serializers: {
+    transaction(transaction, signature) {
+      return serializeTransaction(transaction, signature)
+    },
+  },
+})
+```
+
+- **serializers.transaction**  
+  Type: `(transaction: Transaction, signature?: Signature) => "0x${string}"`
+
+	# ABI Utilities – Viem Documentation
+
+## decodeAbiParameters
+
+**Decodes ABI encoded data.**
+
+```ts
+import { decodeAbiParameters } from 'viem'
+
+const values = decodeAbiParameters(
+  [
+    { name: 'x', type: 'string' },
+    { name: 'y', type: 'uint' },
+    { name: 'z', type: 'bool' }
+  ],
+  '0x000...000'
+)
+// ['wagmi', 420n, true]
+```
+
+You can also use human-readable parameters:
+
+```ts
+import { decodeAbiParameters, parseAbiParameters } from 'viem'
+
+const values = decodeAbiParameters(
+  parseAbiParameters('string x, uint y, bool z'),
+  '0x000...000'
+)
+```
+
+### Parameters
+
+- `params`: `AbiParameter[]`
+- `data`: `Hex`
+
+---
+
+## encodeAbiParameters
+
+**Encodes values into ABI format.**
+
+```ts
+import { encodeAbiParameters } from 'viem'
+
+const encodedData = encodeAbiParameters(
+  [
+    { name: 'x', type: 'string' },
+    { name: 'y', type: 'uint' },
+    { name: 'z', type: 'bool' }
+  ],
+  ['wagmi', 420n, true]
+)
+```
+
+Human-readable:
+
+```ts
+import { encodeAbiParameters, parseAbiParameters } from 'viem'
+
+const encodedData = encodeAbiParameters(
+  parseAbiParameters('string x, uint y, bool z'),
+  ['wagmi', 420n, true]
+)
+```
+
+### Parameters
+
+- `params`: `AbiParameter[]`
+- `values`: `AbiParametersToPrimitiveTypes<AbiParameter[]>`
+
+---
+
+## encodePacked
+
+**Encodes values using packed (non-standard) ABI encoding.**
+
+```ts
+import { encodePacked } from 'viem'
+
+encodePacked(
+  ['address', 'string', 'bytes16[]'], 
+  [
+    '0xd8da6bf26964af9d7eed9e03e53415d37aa96045', 
+    'hello world',
+    ['0xdead...', '0xcafe...']
+  ]
+)
+```
+
+---
+
+## getAbiItem
+
+**Retrieves an ABI item by name or selector.**
+
+```ts
+import { getAbiItem } from 'viem'
+
+const item = getAbiItem({
+  abi: [...],
+  name: 'balanceOf',
+})
+```
+
+---
+
+## parseAbi
+
+**Parses human-readable ABI to JSON ABI.**
+
+```ts
+import { parseAbi } from 'viem'
+
+const abi = parseAbi([
+  'function balanceOf(address owner) view returns (uint256)',
+  'event Transfer(address indexed from, address indexed to, uint256 amount)',
+])
+```
+
+---
+
+## parseAbiItem
+
+**Parses human-readable ABI item (function, event, etc).**
+
+```ts
+import { parseAbiItem } from 'viem'
+
+const item = parseAbiItem(
+  'function balanceOf(address owner) view returns (uint256)',
+)
+```
+
+---
+
+## parseAbiParameter
+
+**Parses a human-readable ABI parameter.**
+
+```ts
+import { parseAbiParameter } from 'viem'
+
+const param = parseAbiParameter('address from')
+```
+
+---
+
+## parseAbiParameters
+
+**Parses multiple human-readable ABI parameters.**
+
+```ts
+import { parseAbiParameters } from 'viem'
+
+const params = parseAbiParameters('address from, address to, uint256 amount')
+```
+
+# viem Utilities Documentation
+
+## `getAddress`
+
+Converts an address into a checksummed address. Supports EIP-1191.
+
+### Import
+```ts
+import { getAddress } from 'viem'
+```
+
+### Usage
+```ts
+getAddress('0xa5cc3c03994db5b0d9a5eEdD10Cabab0813678ac') 
+// '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC'
+```
+
+### Returns
+**Type**: `Address`  
+**Description**: The checksummed address.
+
+### Parameters
+- **address**: `string` – An Ethereum address.
+- **chainId?**: `number` – Optional Chain ID for EIP-1191 compliance.
+
+> ⚠️ EIP-1191 checksums can break compatibility with EIP-55-based tools.
+
+---
+
+## `getContractAddress`
+
+Retrieves the contract address generated by `CREATE` or `CREATE2`.
+
+### Import
+```ts
+import { getContractAddress } from 'viem'
+```
+
+### Usage
+```ts
+getContractAddress({ 
+  from: '0xc961145a54C96E3aE9bAA048c4F4D6b04C13916b',
+  nonce: 69420n
+})
+```
+
+### Returns
+**Type**: `Address`
+
+### Parameters
+- **from?**: `Address` – The deployer's address.
+- **nonce?**: `bigint` – Nonce of the transaction.
+- **opcode?**: `"CREATE" | "CREATE2"` – Default: `"CREATE"`.
+- **bytecode?**: `Hex | ByteArray` – Only for `CREATE2`.
+- **bytecodeHash?**: `Hex | ByteArray` – For `CREATE2`.
+- **salt?**: `Hex | ByteArray` – Only for `CREATE2`.
+
+---
+
+## `isAddress`
+
+Validates an Ethereum address. Can also verify checksummed format.
+
+### Import
+```ts
+import { isAddress } from 'viem'
+```
+
+### Usage
+```ts
+isAddress('0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC')
+// true
+```
+
+### Returns
+**Type**: `boolean` – Whether the address is valid.
+
+### Parameters
+- **address**: `string`
+- **options.strict?**: `boolean` – Default: `true`
+
+---
+
+## `isAddressEqual`
+
+Checks if two addresses are equal (case-insensitive, checksummed).
+
+### Import
+```ts
+import { isAddressEqual } from 'viem'
+```
+
+### Usage
+```ts
+isAddressEqual(
+  '0xa5cc3c03994db5b0d9a5eEdD10Cabab0813678ac',
+  '0xa5cc3c03994DB5b0d9A5eEdD10CabaB0813678AC'
+)
+// true
+```
+
+### Returns
+**Type**: `boolean` – Whether the addresses are equal.
+
+
+# viem Utilities
+
+## `extractChain`
+
+Extracts a type-safe chain by ID from a set of chains.
+
+### Usage
+
+```ts
+import { extractChain } from 'viem'
+import { mainnet, base, optimism, zora } from 'viem/chains'
+
+const optimism = extractChain({
+  chains: [mainnet, base, optimism, zora],
+  id: 10,
+})
+```
+
+It is also possible to use all chains from the `viem/chains` module:
+
+```ts
+import * as chains from 'viem/chains'
+
+const optimism = extractChain({
+  chains: Object.values(chains),
+  id: 10,
+})
+```
+
+### Returns
+
+**Type:** `Chain` (inferred)
+
+---
+
+## `concat`
+
+Concatenates a set of hex values or byte arrays.
+
+### Usage
+
+```ts
+import { concat } from 'viem'
+
+concat(['0x00000069', '0x00000420']) // '0x0000006900000420'
+concat([new Uint8Array([69]), new Uint8Array([420])]) // Uint8Array [69, 420]
+```
+
+### Returns
+
+**Type:** `Hex | ByteArray`
+
+---
+
+## `isBytes`
+
+Checks whether the value is a byte array.
+
+### Usage
+
+```ts
+import { isBytes } from 'viem'
+
+isBytes(new Uint8Array([1, 69, 420])) // true
+isBytes([1, 69, 420]) // false
+```
+
+---
+
+## `isHex`
+
+Checks whether the value is a hex string.
+
+### Usage
+
+```ts
+import { isHex } from 'viem'
+
+isHex('0x1a4') // true
+isHex('0x1a4z') // false
+isHex('lol', { strict: false }) // false
+```
+
+### Parameters
+
+- `value: unknown`
+- `options.strict: boolean` (default: `true`)
+
+---
+
+## `pad`
+
+Pads a hex value or byte array.
+
+### Usage
+
+```ts
+import { pad } from 'viem'
+
+pad('0xa4e12a45') // default: left pad to 32 bytes
+pad('0xa4e12a45', { dir: 'right' }) 
+pad('0xa4e12a45', { size: 16 })
+```
+
+---
+
+## `slice`
+
+Slices a hex string or byte array from a given byte offset.
+
+### Usage
+
+```ts
+import { slice } from 'viem'
+
+slice('0x0123456789', 1, 4) // '0x234567'
+slice(new Uint8Array([1, 122, 51, 123]), 1, 3) // Uint8Array [122, 51]
+```
+
+### Parameters
+
+- `start: number` – Start offset in bytes
+- `end: number` – End offset in bytes
+- `options.strict: boolean` – Throw error if out-of-bounds
+
+---
+
+## `size`
+
+Returns the size of a hex value or byte array (in bytes).
+
+### Usage
+
+```ts
+import { size } from 'viem'
+
+size('0xa4') // 1
+size('0xa4e12a45') // 4
+size(new Uint8Array([1, 122, 51, 123])) // 4
+```
+
+---
+
+## `trim`
+
+Trims zero bytes from the left or right of hex/byte array.
+
+### Usage
+
+```ts
+import { trim } from 'viem'
+
+trim('0x00000000000000000000000000000000000000000000000000000001a4e12a45') 
+trim('0xa4e12a4510000000000000000000000000000000000000000000000000000000', {
+  dir: 'right'
+})
+```
+# viem Utilities: Formatting & Parsing
+
+## formatEther
+
+**Converts numerical wei to a string representation of ether.**
+
+```ts
+import { formatEther } from 'viem'
+
+formatEther(1000000000000000000n) 
+// '1'
+```
+
+**Returns:** `string`
+
+**Parameters:**
+
+- `value` (`bigint`): The wei value.
+
+---
+
+## formatGwei
+
+**Converts numerical wei to a string representation of gwei.**
+
+```ts
+import { formatGwei } from 'viem'
+
+formatGwei(1000000000n) 
+// '1'
+```
+
+**Returns:** `string`
+
+**Parameters:**
+
+- `value` (`bigint`): The wei value.
+
+---
+
+## formatUnits
+
+**Divides a number by a given exponent of base 10 (10^exponent), and formats it into a string representation.**
+
+```ts
+import { formatUnits } from 'viem'
+
+formatUnits(420000000000n, 9) 
+// '420'
+```
+
+**Returns:** `string`
+
+**Parameters:**
+
+- `value` (`bigint`): The number to divide.
+- `exponent` (`number`): The exponent.
+
+---
+
+## parseEther
+
+**Converts a string representation of ether to numerical wei.**
+
+```ts
+import { parseEther } from 'viem'
+
+parseEther('420') 
+// 420000000000000000000n
+```
+
+**Returns:** `bigint`
+
+**Parameters:**
+
+- `value` (`string`): The string representation of ether.
+
+---
+
+## parseGwei
+
+**Converts a string representation of gwei to numerical wei.**
+
+```ts
+import { parseGwei } from 'viem'
+
+parseGwei('420') 
+// 420000000000n
+```
+
+**Returns:** `bigint`
+
+**Parameters:**
+
+- `value` (`string`): The string representation of gwei.
+
+---
+
+## parseUnits
+
+**Multiplies a string representation of a number by a given exponent of base 10 (10^exponent).**
+
+```ts
+import { parseUnits } from 'viem'
+
+parseUnits('420', 9) 
+// 420000000000n
+```
+
+**Returns:** `bigint`
+
+**Parameters:**
+
+- `value` (`string`): The string representation of the number.
+- `exponent` (`number`): The exponent.
+

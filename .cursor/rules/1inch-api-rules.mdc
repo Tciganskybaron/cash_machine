@@ -1,0 +1,88 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# 1inch API Rules
+
+## Основные эндпоинты
+1. Classic Swap: https://portal.1inch.dev/documentation/apis/swap/classic-swap/quick-start
+2. Approve Transaction: https://api.1inch.dev/swap/v6.0/1/approve/transaction
+
+## Swap Parameters
+| Параметр | Тип | Обязательный | Пример | Описание |
+|----------|-----|--------------|---------|-----------|
+| src | string | * | 0x6b175474e89094c44da98b954eedeac495271d0f | Адрес токена для продажи |
+| dst | string | * | 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48 | Адрес токена для покупки |
+| amount | string | * | 1000000000000000000 | Количество токенов в минимальных единицах (1.00 DAI = 1000000000000000000) |
+| from | string | * | 0x52bc44d5378309ee2abf1539bf71de1b7d7be3b5 | Адрес продавца (должен иметь approve) |
+| origin | string | * | - | EOA адрес инициирующий транзакцию (для KYC/AML) |
+| slippage | number | * | 0.5 | Допустимое проскальзывание в % (0-50) |
+| protocols | string | - | WETH,CURVE,BALANCER | Список протоколов ликвидности |
+| receiver | string | - | - | Адрес получателя купленных токенов (по умолчанию from) |
+| includeTokensInfo | boolean | - | false | Включить информацию о токенах в ответ |
+| includeProtocols | boolean | - | false | Включить использованные протоколы в ответ |
+| referrer | string | - | - | Адрес реферера |
+| fee | number | - | 1.5 | Процент токенов для реферера (0-3) |
+| gasPrice | string | - | 12500000000 | Цена газа в wei (12.5 GWEI = 12500000000) |
+| permit | string | - | - | EIP-2612 permit |
+| compatibility | boolean | - | false | Исключить Unoswap для торговли FoT токенами |
+| excludedProtocols | string | - | - | Исключаемые источники ликвидности |
+| complexityLevel | string | - | 2 | Максимальное количество токенов-коннекторов (0-3) |
+| connectorTokens | string | - | 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE | Список токенов-коннекторов (макс. 5) |
+| allowPartialFill | boolean | - | true | Разрешить частичное исполнение |
+| disableEstimate | boolean | - | false | Отключить большинство проверок |
+| gasLimit | integer | - | 11500000 | Максимальный газ для свапа (макс. 11500000) |
+| mainRouteParts | integer | - | 20 | Лимит частей основного маршрута (макс. 50) |
+| parts | integer | - | 20 | Лимит разделения каждой части маршрута (макс. 100) |
+| usePermit2 | boolean | - | false | Использовать Permit2 для approve |
+
+## Approve Parameters
+| Параметр | Тип | Обязательный | Пример | Описание |
+|----------|-----|--------------|---------|-----------|
+| chain | number | * | 1 | Chain ID |
+| tokenAddress | string | * | 0x111111111117dc0aa78b770fa6a738034120c302 | Адрес токена для approve |
+| amount | string | - | 100000000000 | Количество токенов (если не указано - infinite) |
+
+## Response Schema
+### Success (200)
+```typescript
+interface SwapResponse {
+  srcToken: TokenInfo;
+  dstToken: TokenInfo;
+  fromAmount: string;
+  dstAmount: string;
+  protocols: string;
+  tx: TransactionData;
+}
+
+interface TokenInfo {
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI: string;
+}
+
+interface TransactionData {
+  from: string;
+  to: string;
+  data: string;
+  value: string;
+  gasPrice: string;
+  gas: string;
+}
+```
+
+### Error (400/500)
+```typescript
+interface SwapRequestError {
+  error: string;
+  description: string;
+  statusCode: 400 | 500;
+  requestId: string;
+  meta: HttpExceptionMeta[];
+}
+```
+
+  
