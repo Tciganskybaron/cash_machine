@@ -1,0 +1,12 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+- Для роботы с большими числами мы используем бибилиоткеу bignumber.js
+https://www.npmjs.com/package/bignumber.js
+- Для тестов Jest
+- Для запросов axios
+- Для работы с evm блокчейном viem
+- База данных mongodb
