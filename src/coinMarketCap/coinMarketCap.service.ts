@@ -7,8 +7,8 @@ import {
 	Logger,
 } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
-import { COINMARKETCAP_MODULE_OPTIONS } from './constants/coinMarketCap.constants';
-import { ICoinMarketCapOptions } from './types/coinMarketCap.interface';
+import { COINMARKETCAP_MODULE_OPTIONS } from './constants/coinmarketcap.constants';
+import { ICoinMarketCapOptions } from './types/coinmarketcap.interface';
 
 @Injectable()
 export class CoinMarketCapService {

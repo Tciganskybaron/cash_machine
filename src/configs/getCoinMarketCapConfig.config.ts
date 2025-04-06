@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
-import { COINMARKETCAP_API_URL } from 'src/coinMarketCap/constants/coinMarketCap.constants';
-import { ICoinMarketCapOptions } from 'src/coinMarketCap/types/coinMarketCap.interface';
+import { COINMARKETCAP_API_URL } from 'src/coinMarketCap/constants/coinmarketcap.constants';
+import { ICoinMarketCapOptions } from 'src/coinMarketCap/types/coinmarketcap.interface';
 
 export const getCoinMarketCapConfig = (configService: ConfigService): ICoinMarketCapOptions => {
 	const apiKey = configService.get<string>('COINMARKETCAP_API_KEY');
