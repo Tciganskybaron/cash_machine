@@ -3,7 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CoinService } from './coin.service';
 import { CoinController } from './coin.controller';
 import { ScheduleModule } from '@nestjs/schedule';
-import { CoinMarketCapModule } from 'src/coinMarketCap/coinMarketCap.module';
+import { CoinMarketCapModule } from 'src/coinMarketCap/coinmarketcap.module';
 import { Coin, CoinSchema } from './model/coin.model';
 
 @Module({

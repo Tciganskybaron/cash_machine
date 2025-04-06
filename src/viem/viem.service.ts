@@ -1,71 +1,82 @@
+// viem.service.ts
 import { Inject, Injectable } from '@nestjs/common';
-import {
-	PublicClient,
-	Transport,
-	WalletClient,
-	createPublicClient,
-	http,
-	createWalletClient,
-	formatEther,
-	parseEther,
-} from 'viem';
+import { createPublicClient, http, createWalletClient, formatEther, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { base } from 'viem/chains';
 import { VIEM_MODULE_OPTIONS } from './constants/viem.constants';
-import { ViemOptions } from './types/viem.interface';
+import {
+	ChainId,
+	ChainClients,
+	ViemOptions,
+	CHAIN_CONFIG,
+	SUPPORTED_CHAINS,
+} from './types/viem.interface';
 import { ISendEthParams, ISendTransactionParams } from './types/viem.params';
 
 @Injectable()
 export class ViemService {
-	private publicClient: PublicClient<Transport, typeof base>;
-	private walletClient: WalletClient<Transport, typeof base>;
+	private chainClients: Map<ChainId, ChainClients> = new Map();
 	public account: ReturnType<typeof privateKeyToAccount>;
 
 	constructor(@Inject(VIEM_MODULE_OPTIONS) options: ViemOptions) {
 		this.account = privateKeyToAccount(options.privateKey);
 
-		this.publicClient = createPublicClient({
-			chain: base,
-			transport: http(),
-		});
+		// Используем SUPPORTED_CHAINS вместо Object.values
+		SUPPORTED_CHAINS.forEach((chainId) => {
+			const chain = CHAIN_CONFIG[chainId];
 
-		this.walletClient = createWalletClient({
-			chain: base,
-			transport: http(),
-			account: this.account,
+			const publicClient = createPublicClient({
+				chain,
+				transport: http(),
+			});
+
+			const walletClient = createWalletClient({
+				chain,
+				transport: http(),
+				account: this.account,
+			});
+
+			this.chainClients.set(chainId, { publicClient, walletClient });
 		});
 	}
 
-	async getBalance(address: `0x${string}`) {
-		const balance = await this.publicClient.getBalance({ address });
+	private getClients(chainId: ChainId): ChainClients {
+		const clients = this.chainClients.get(chainId);
+		if (!clients) {
+			throw new Error(`Сеть ${chainId} не поддерживается`);
+		}
+		return clients;
+	}
+
+	async getBalance(address: `0x${string}`, chainId: ChainId) {
+		const { publicClient } = this.getClients(chainId);
+		const balance = await publicClient.getBalance({ address });
 		return formatEther(balance);
 	}
 
 	async sendEth(params: ISendEthParams) {
 		try {
-			const { amount, recipient } = params;
+			const { amount, recipient, chainId } = params;
+			const { walletClient } = this.getClients(chainId);
 
-			// Подготовка транзакции с объектом account
-			const request = await this.walletClient.prepareTransactionRequest({
+			const request = await walletClient.prepareTransactionRequest({
 				account: this.account,
 				to: recipient,
 				value: parseEther(amount),
+				chain: CHAIN_CONFIG[chainId],
 			});
 
-			// Подписание транзакции
-			const serializedTransaction = await this.walletClient.signTransaction({
+			const serializedTransaction = await walletClient.signTransaction({
 				...request,
 				account: this.account,
 			});
 
-			//Отправка транзакции
-			const hash = await this.walletClient.sendRawTransaction({
+			const hash = await walletClient.sendRawTransaction({
 				serializedTransaction,
 			});
 
 			return hash;
 		} catch (error) {
-			throw new Error(`🚨 Ошибка при отправке Ether : ${error}`);
+			throw new Error(`🚨 Ошибка при отправке Ether в сети ${params.chainId}: ${error}`);
 		}
 	}
 
@@ -73,23 +84,27 @@ export class ViemService {
 		params: ISendTransactionParams,
 	): Promise<{ txHash: `0x${string}`; status: 'success' | 'reverted' }> {
 		try {
-			const gasPrice = await this.publicClient.getGasPrice();
+			const { to, data, value, chainId } = params;
+			const { publicClient, walletClient } = this.getClients(chainId);
 
-			const { to, data, value } = params;
+			const gasPrice = await publicClient.getGasPrice();
 
-			const txHash = await this.walletClient.sendTransaction({
+			const txHash = await walletClient.sendTransaction({
 				to,
 				data,
 				value: BigInt(value),
 				gasPrice,
 				account: this.account,
+				chain: CHAIN_CONFIG[chainId],
 			});
 
-			const receipt = await this.publicClient.waitForTransactionReceipt({ hash: txHash });
+			const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
 
 			return { txHash, status: receipt.status };
 		} catch (error) {
-			throw new Error(`🚨 Ошибка при выполнеии sendTransaction : ${error}`);
+			throw new Error(
+				`🚨 Ошибка при выполнении sendTransaction в сети ${params.chainId}: ${error}`,
+			);
 		}
 	}
 }

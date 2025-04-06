@@ -1,0 +1,25 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: always
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin
+    ports:
+      - '27017:27017'
+    volumes:
+      - ~/mongo-data:/data/db
+    networks:
+      - mongo_network
+
+networks:
+  mongo_network:
+    name: mongo_default
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    name: mongodb_data

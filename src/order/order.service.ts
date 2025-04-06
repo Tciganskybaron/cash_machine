@@ -12,10 +12,10 @@ import { ViemService } from 'src/viem/viem.service';
 import { IApproveTokenParams } from 'src/1inch/types/1inch.params';
 import { TelegramService } from 'src/telegram/telegram.service';
 import BigNumber from 'bignumber.js';
+import { validateAndParseChainId } from './utils/chain.utils';
 
 @Injectable()
 export class OrderService {
-	//private readonly USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 	private readonly MAX_RETRIES = 5;
 
 	constructor(
@@ -82,6 +82,7 @@ export class OrderService {
 					to: swapData.tx.to,
 					data: swapData.tx.data,
 					value: swapData.tx.value,
+					chainId: newOrder.chain_id,
 				});
 
 				// 4) Если транзакция прошла успешно
@@ -142,10 +143,13 @@ export class OrderService {
 			chainId,
 		);
 
+		const validChainId = validateAndParseChainId(chainId);
+
 		await this.viemService.sendTransaction({
 			to: approveData.to,
 			data: approveData.data,
 			value: approveData.value,
+			chainId: validChainId,
 		});
 	}
 }
