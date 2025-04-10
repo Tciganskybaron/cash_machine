@@ -1,12 +1,19 @@
-import { HttpException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+	HttpException,
+	Injectable,
+	InternalServerErrorException,
+	NotFoundException,
+	ConflictException,
+	BadRequestException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { CoinMarketCapService } from 'src/coinMarketCap/coinMarketCap.service';
 import { Coin } from './model/coin.model';
 import { CoinDto } from './dto/coin.dto';
+import { CoinMarketCapService } from 'src/coinmarketcap/coinmarketcap.service';
 
 @Injectable()
 export class CoinService {
@@ -17,15 +24,48 @@ export class CoinService {
 	) {}
 
 	async addCoin(coinDto: CoinDto): Promise<Coin> {
-		const exists = await this.coinModel.findOne({ ucid: coinDto.ucid });
-		if (exists) {
-			throw new Error(`Coin ${coinDto.symbol} already exists`);
+		try {
+			if (!coinDto.ucid) {
+				throw new BadRequestException('ucid is required');
+			}
+
+			const exists = await this.coinModel.findOne({ ucid: coinDto.ucid });
+			if (exists) {
+				throw new ConflictException(`Coin ${coinDto.symbol} already exists`);
+			}
+
+			const newCoin = new this.coinModel(coinDto);
+			await newCoin.save();
+
+			return newCoin;
+		} catch (error) {
+			if (error instanceof BadRequestException || error instanceof ConflictException) {
+				throw error;
+			}
+			throw new InternalServerErrorException('Error creating coin');
 		}
+	}
 
-		const newCoin = new this.coinModel(coinDto);
-		await newCoin.save();
+	async addCoinFromCoinMarketCap(ucid: string): Promise<string> {
+		try {
+			// Проверяем, существует ли уже монета
+			const exists = await this.coinModel.findOne({ ucid });
+			if (exists) {
+				throw new ConflictException(`Coin with ucid ${ucid} already exists`);
+			}
 
-		return newCoin;
+			// Получаем метаданные из CoinMarketCap
+			const metadata = await this.coinMarketCapService.fetchMetadataByUCID(ucid);
+
+			return metadata;
+		} catch (error: unknown) {
+			if (error instanceof ConflictException || error instanceof NotFoundException) {
+				throw error;
+			}
+			throw new InternalServerErrorException(
+				`Error adding coin from CoinMarketCap: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			);
+		}
 	}
 
 	async getAllCoins(): Promise<Coin[]> {
@@ -33,7 +73,11 @@ export class CoinService {
 	}
 
 	async getCoinByUcid(ucid: string): Promise<Coin | null> {
-		return this.coinModel.findOne({ ucid });
+		const coin = await this.coinModel.findOne({ ucid });
+		if (!coin) {
+			throw new NotFoundException(`Coin with ucid ${ucid} not found`);
+		}
+		return coin;
 	}
 
 	async getTradingCoins(): Promise<Coin[]> {
@@ -41,7 +85,19 @@ export class CoinService {
 	}
 
 	async setCoinIsTading(ucid: string): Promise<Coin | null> {
-		return this.coinModel.findOneAndUpdate({ ucid }, { isTrading: true });
+		const coin = await this.coinModel.findOneAndUpdate({ ucid }, { isTrading: true });
+		if (!coin) {
+			throw new NotFoundException(`Coin with ucid ${ucid} not found`);
+		}
+		return coin;
+	}
+
+	async deleteCoinByUcid(ucid: string): Promise<Coin | null> {
+		const coin = await this.coinModel.findOneAndDelete({ ucid });
+		if (!coin) {
+			throw new NotFoundException(`Coin with ucid ${ucid} not found`);
+		}
+		return coin;
 	}
 
 	@Cron(CronExpression.EVERY_30_MINUTES)

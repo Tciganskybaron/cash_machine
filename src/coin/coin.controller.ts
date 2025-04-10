@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import {
+	Body,
+	Controller,
+	Delete,
+	Get,
+	Param,
+	Post,
+	UsePipes,
+	ValidationPipe,
+} from '@nestjs/common';
 import { CoinService } from './coin.service';
 import { CoinDto } from './dto/coin.dto';
 
@@ -7,8 +16,14 @@ export class CoinController {
 	constructor(private readonly coinService: CoinService) {}
 
 	@Post('add')
+	@UsePipes(new ValidationPipe({ transform: true }))
 	async addCoin(@Body() coinDto: CoinDto) {
 		return this.coinService.addCoin(coinDto);
+	}
+
+	@Post(':ucid')
+	async addCoinFromCoinMarketCap(@Param('ucid') ucid: string) {
+		return this.coinService.addCoinFromCoinMarketCap(ucid);
 	}
 
 	@Get()
@@ -19,5 +34,10 @@ export class CoinController {
 	@Get(':ucid')
 	async getCoinByUcid(@Param('ucid') ucid: string) {
 		return this.coinService.getCoinByUcid(ucid);
+	}
+
+	@Delete(':ucid')
+	async deleteCoinByUcid(@Param('ucid') ucid: string) {
+		return this.coinService.deleteCoinByUcid(ucid);
 	}
 }
