@@ -61,7 +61,10 @@ export class OrderService {
 			try {
 				// 1) Approve
 				await this.approveToken(
-					{ amount: newOrder.amount, tokenAddress: newOrder.src as `0x${string}` },
+					{
+						amount: newOrder.amount,
+						tokenAddress: newOrder.src as `0x${string}`,
+					},
 					newOrder.chain_id,
 				);
 
@@ -93,6 +96,7 @@ export class OrderService {
 						{ status: OrderStatus.COMPLETED, tx_hash: swap.txHash },
 					);
 
+					await this.strategyService.successOrder(newOrder.sell_order_ids);
 					// --- ВАЖНО ---
 					// Весь "пост-транзакционный" код оборачиваем в отдельный try/catch,
 					// чтобы при ошибке здесь НЕ перезапускать свап заново
@@ -122,6 +126,7 @@ export class OrderService {
 					return;
 				}
 			} catch (error: unknown) {
+				await this.orderModel.updateOne({ _id: newOrder._id }, { status: OrderStatus.FAILED });
 				throw new InternalServerErrorException(
 					`🚨 Error on swap attempt ${retries + 1}: ${String(error)}`,
 				);
@@ -132,6 +137,7 @@ export class OrderService {
 		}
 
 		// Если все попытки исчерпаны, выбрасываем исключение
+		await this.orderModel.updateOne({ _id: newOrder._id }, { status: OrderStatus.FAILED });
 		throw new InternalServerErrorException(
 			`❌ Order ${newOrder._id} failed after ${this.MAX_RETRIES} attempts`,
 		);

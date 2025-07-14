@@ -21,14 +21,15 @@ export class CoinController {
 		return this.coinService.addCoin(coinDto);
 	}
 
-	@Post(':ucid')
-	async addCoinFromCoinMarketCap(@Param('ucid') ucid: string) {
-		return this.coinService.addCoinFromCoinMarketCap(ucid);
-	}
-
 	@Get()
 	async getAllCoins() {
 		return this.coinService.getAllCoins();
+	}
+
+	@Get('get-coin-price')
+	async getCoinPrice() {
+		await this.coinService.getCoinPrices();
+		return true;
 	}
 
 	@Get(':ucid')

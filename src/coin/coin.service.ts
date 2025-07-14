@@ -46,28 +46,6 @@ export class CoinService {
 		}
 	}
 
-	async addCoinFromCoinMarketCap(ucid: string): Promise<string> {
-		try {
-			// Проверяем, существует ли уже монета
-			const exists = await this.coinModel.findOne({ ucid });
-			if (exists) {
-				throw new ConflictException(`Coin with ucid ${ucid} already exists`);
-			}
-
-			// Получаем метаданные из CoinMarketCap
-			const metadata = await this.coinMarketCapService.fetchMetadataByUCID(ucid);
-
-			return metadata;
-		} catch (error: unknown) {
-			if (error instanceof ConflictException || error instanceof NotFoundException) {
-				throw error;
-			}
-			throw new InternalServerErrorException(
-				`Error adding coin from CoinMarketCap: ${error instanceof Error ? error.message : 'Unknown error'}`,
-			);
-		}
-	}
-
 	async getAllCoins(): Promise<Coin[]> {
 		return this.coinModel.find();
 	}
@@ -101,27 +79,27 @@ export class CoinService {
 	}
 
 	@Cron(CronExpression.EVERY_30_MINUTES)
-	async updateCoinPrices(): Promise<void> {
+	async getCoinPrices(): Promise<void> {
 		try {
 			const coins = await this.coinModel.find({ isTrading: true });
 			const ucids = coins.map((coin) => coin.ucid);
-
+			console.log('ucids', ucids);
 			if (!ucids.length) {
 				return;
 			}
 
 			const prices = await this.coinMarketCapService.fetchPricesByUCID(ucids);
-
-			let pricesUpdated = false;
+			let pricesUp = false;
 			for (const coin of coins) {
 				const newPrice = prices[coin.ucid];
-				if (newPrice !== null && newPrice !== undefined) {
-					await this.coinModel.updateOne({ _id: coin._id }, { price: newPrice });
-					pricesUpdated = true;
+				const oldPrice = coin.price;
+				if (newPrice > oldPrice) {
+					await this.coinModel.findOneAndUpdate({ ucid: coin.ucid }, { price: newPrice });
+					pricesUp = true;
 				}
 			}
 
-			if (pricesUpdated) {
+			if (pricesUp) {
 				this.eventEmitter.emit('coin.pricesUpdated');
 			}
 		} catch (error: unknown) {
@@ -138,5 +116,13 @@ export class CoinService {
 			// приводим к строке и выбрасываем
 			throw new InternalServerErrorException(`Error updating coin prices: ${String(error)}`);
 		}
+	}
+
+	async updateCoinPrices(ucid: string, newPrice: number): Promise<void> {
+		const coin = await this.coinModel.findOne({ ucid });
+		if (!coin) {
+			throw new NotFoundException(`Coin with ucid ${ucid} not found`);
+		}
+		await this.coinModel.updateOne({ _id: coin._id }, { price: newPrice });
 	}
 }

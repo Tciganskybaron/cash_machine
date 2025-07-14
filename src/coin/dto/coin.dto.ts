@@ -33,6 +33,10 @@ export class CoinDto {
 	isTrading: boolean;
 
 	@IsDefined()
+	@IsNumber()
+	price: number;
+
+	@IsDefined()
 	@IsArray()
 	@ValidateNested({ each: true })
 	@Type(() => ChainAddressDto)
