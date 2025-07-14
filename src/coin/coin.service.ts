@@ -83,7 +83,6 @@ export class CoinService {
 		try {
 			const coins = await this.coinModel.find({ isTrading: true });
 			const ucids = coins.map((coin) => coin.ucid);
-			console.log('ucids', ucids);
 			if (!ucids.length) {
 				return;
 			}

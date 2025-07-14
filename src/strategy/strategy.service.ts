@@ -264,7 +264,6 @@ export class StrategyService {
 
 			for (const coinDto of dto) {
 				const { price, ucid } = coinDto;
-				console.log('price', price);
 				const pipeline = [
 					// 1) lookup для base_coin
 					{
@@ -361,7 +360,6 @@ export class StrategyService {
 				];
 
 				const coinResult = await this.strategyModel.aggregate(pipeline);
-				console.log('coinResult', coinResult);
 				if (coinResult.length > 0) {
 					// Добавляем в итоговый массив
 					result.push(coinResult[0]);
