@@ -1,9 +1,9 @@
 import { DynamicModule, Global, Module, Provider } from '@nestjs/common';
 
-import { CoinMarketCapService } from './coinMarketCap.service';
 import { COINMARKETCAP_MODULE_OPTIONS } from './constants/coinmarketcap.constants';
 import { HttpModule } from '@nestjs/axios';
-import { ICoinMarketCapModuleAsyncOptions } from 'src/coinMarketCap/types/coinmarketcap.interface';
+import { ICoinMarketCapModuleAsyncOptions } from './types/coinmarketcap.interface';
+import { CoinMarketCapService } from './coinmarketcap.service';
 
 @Global()
 @Module({})

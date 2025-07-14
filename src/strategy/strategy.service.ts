@@ -7,7 +7,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, ObjectId } from 'mongoose';
 import { SellOrder, SellOrderStatus, Strategy, StrategyDocument } from './model/strategy.model';
 import { StrategyDto } from './dto/strategy.dto';
 import { CoinService } from 'src/coin/coin.service';
@@ -50,7 +50,7 @@ export class StrategyService {
 			}
 
 			// 2) Проверяем котируемую монету
-			const quote_coin = await this.coinService.setCoinIsTading(dto.quote_сoin_ucid);
+			const quote_coin = await this.coinService.getCoinByUcid(dto.quote_сoin_ucid);
 			if (!quote_coin) {
 				throw new NotFoundException(
 					`Token with ucid ${dto.quote_сoin_ucid} does not exist in Coin database.`,
@@ -175,8 +175,8 @@ export class StrategyService {
 			}
 
 			// 4) Считаем токены
-			const decimals = new BigNumber(10).pow(base_coin.decimals);
-			const totalTokens = new BigNumber(dto.totalTokens).times(decimals);
+			// const decimals = new BigNumber(10).pow(base_coin.decimals);
+			const totalTokens = new BigNumber(dto.totalTokens); // только в токенах
 
 			// Делим токены: p% для особых, (1-p)% для обычных
 			const specialTotal = totalTokens.multipliedBy(p);
@@ -189,40 +189,27 @@ export class StrategyService {
 				throw new BadRequestException(`maxSellPrice must be greater than currentPrice`);
 			}
 
-			// priceStep = (maxPrice - minPrice) / (totalLines - 1)
-			// Если totalLines == 1, нужно отдельное условие, но тут >= 3, так что ок
 			const priceStep = maxPrice.minus(minPrice).div(totalLines.minus(1));
 
-			// 6) Сколько особых и сколько обычных реально
-			const M_int = M.toNumber(); // особых
-			const N_int = N.toNumber(); // обычных между двумя особыми
+			const M_int = M.toNumber();
+			const N_int = N.toNumber();
 			const totalLinesInt = totalLines.toNumber();
-
 			const totalOrdinaryLines = (M_int - 1) * N_int;
 
-			// Кол-во токенов на одну особую линию
 			const w_s = specialTotal.div(M);
-			// Кол-во токенов на одну обычную линию
 			const w_o = ordinaryTotal.div(totalOrdinaryLines);
 
-			// 7) Генерируем паттерн линий (S, O, O, S, O, O, S, ...)
-			// М - особых, между каждой парой особых вставляем N обычных
 			const lineTypes: ('S' | 'O')[] = [];
 			for (let i = 1; i <= M_int; i++) {
-				// добавляем одну особую
 				lineTypes.push('S');
-				// если это не последняя особая, добавляем N обычных
 				if (i < M_int) {
 					for (let j = 0; j < N_int; j++) {
 						lineTypes.push('O');
 					}
 				}
 			}
-			// Должно получиться totalLinesInt элементов
 
-			// 8) Формируем sell_orders
 			const sellOrders: SellOrder[] = [];
-
 			for (let i = 0; i < totalLinesInt; i++) {
 				const lineType = lineTypes[i];
 				const price = minPrice.plus(priceStep.multipliedBy(i));
@@ -236,23 +223,18 @@ export class StrategyService {
 
 				sellOrders.push({
 					price: price.toFixed(base_coin.decimals),
-					amount: amount.toFixed(), // без округления, можно toFixed(base_coin.decimals) если нужно
-					status: SellOrderStatus.PENDING, // SellOrderStatus.PENDING
+					amount: amount.toFixed(base_coin.decimals), // только в токенах
+					status: SellOrderStatus.PENDING,
 				});
 			}
 
-			// 9) Создаём документ стратегии
 			const newStrategy = new this.strategyModel({
 				base_coin: base_coin._id,
 				quote_сoin: quote_coin._id,
 				chain_id: dto.chain_id,
-				// Храним общее количество токенов
-				total_tokens: totalTokens.toFixed(),
-				// Для совместимости с getActiveOrders сохраняем:
+				total_tokens: totalTokens.toFixed(base_coin.decimals), // только в токенах
 				max_sell_price: maxPrice.toFixed(),
-				// grid_count = totalLinesInt
 				grid_count: totalLinesInt,
-				// sell_orders
 				sell_orders: sellOrders,
 			});
 
@@ -282,7 +264,7 @@ export class StrategyService {
 
 			for (const coinDto of dto) {
 				const { price, ucid } = coinDto;
-
+				console.log('price', price);
 				const pipeline = [
 					// 1) lookup для base_coin
 					{
@@ -316,7 +298,7 @@ export class StrategyService {
 					{
 						$match: {
 							'sell_orders.price': { $lt: new BigNumber(price).toString() },
-							'sell_orders.status': SellOrderStatus.PENDING,
+							'sell_orders.status': { $in: [SellOrderStatus.PENDING, SellOrderStatus.EXECUTING] },
 						},
 					},
 
@@ -379,7 +361,7 @@ export class StrategyService {
 				];
 
 				const coinResult = await this.strategyModel.aggregate(pipeline);
-
+				console.log('coinResult', coinResult);
 				if (coinResult.length > 0) {
 					// Добавляем в итоговый массив
 					result.push(coinResult[0]);
@@ -404,5 +386,13 @@ export class StrategyService {
 			// Иначе оборачиваем в InternalServerErrorException
 			throw new InternalServerErrorException(`Failed to get active orders: ${String(error)}`);
 		}
+	}
+
+	async successOrder(sellOrderIds: ObjectId[]): Promise<void> {
+		await this.strategyModel.updateOne(
+			{ 'sell_orders._id': { $in: sellOrderIds } },
+			{ $set: { 'sell_orders.$[order].status': SellOrderStatus.COMPLETED } },
+			{ arrayFilters: [{ 'order._id': { $in: sellOrderIds } }] },
+		);
 	}
 }

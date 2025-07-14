@@ -6,7 +6,10 @@ import {
 	InternalServerErrorException,
 } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
-import { COINMARKETCAP_MODULE_OPTIONS } from './constants/coinmarketcap.constants';
+import {
+	COINMARKETCAP_MODULE_OPTIONS,
+	COINMARKETCAP_QUOTE_LATEST,
+} from './constants/coinmarketcap.constants';
 import { ICoinMarketCapOptions } from './types/coinmarketcap.interface';
 
 @Injectable()
@@ -22,7 +25,7 @@ export class CoinMarketCapService {
 	async fetchPricesByUCID(ucids: string[]): Promise<Record<string, number>> {
 		try {
 			// Запрос к CoinMarketCap
-			const response = await axios.get(this.apiUrl, {
+			const response = await axios.get(this.apiUrl + COINMARKETCAP_QUOTE_LATEST, {
 				params: { id: ucids.join(','), convert: 'USD' },
 				headers: { 'X-CMC_PRO_API_KEY': this.apiKey },
 			});
@@ -45,11 +48,5 @@ export class CoinMarketCapService {
 			}
 			throw new InternalServerErrorException(`Unexpected error in fetchPricesByUCID: ${error}`);
 		}
-	}
-
-	async fetchMetadataByUCID(ucid: string) {
-		const url = `${this.apiUrl}/cryptocurrency/info`;
-		console.log(url);
-		return `привет ${ucid}`;
 	}
 }

@@ -8,6 +8,7 @@ export enum OrderStatus {
 	PENDING = 'pending', // Ожидает
 	EXECUTING = 'executing', // Выполняется
 	COMPLETED = 'completed', // Выполнено
+	FAILED = 'failed', // Не выполнено
 }
 
 @Schema({ timestamps: true, collection: 'order' })
