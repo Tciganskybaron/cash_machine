@@ -3,7 +3,7 @@ import { DynamicModule, Global, Module, Provider } from '@nestjs/common';
 import { COINMARKETCAP_MODULE_OPTIONS } from './constants/coinmarketcap.constants';
 import { HttpModule } from '@nestjs/axios';
 import { ICoinMarketCapModuleAsyncOptions } from './types/coinmarketcap.interface';
-import { CoinMarketCapService } from './coinMarketCap.service';
+import { CoinMarketCapService } from './coinmarketcap.service';
 
 @Global()
 @Module({})

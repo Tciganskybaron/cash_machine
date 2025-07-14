@@ -13,7 +13,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { Coin } from './model/coin.model';
 import { CoinDto } from './dto/coin.dto';
-import { CoinMarketCapService } from 'src/coinmarketcap/coinmarketcap.service';
+import { CoinMarketCapService } from '../coinmarketcap/coinmarketcap.service';
 
 @Injectable()
 export class CoinService {
