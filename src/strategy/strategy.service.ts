@@ -11,6 +11,7 @@ import { Model, ObjectId } from 'mongoose';
 import { SellOrder, SellOrderStatus, Strategy, StrategyDocument } from './model/strategy.model';
 import { StrategyDto } from './dto/strategy.dto';
 import { CoinService } from 'src/coin/coin.service';
+import { ViemService } from 'src/viem/viem.service';
 import BigNumber from 'bignumber.js';
 import { OrderCoinDto } from 'src/order/dto/order_coin.dto';
 import { OrderDto } from 'src/order/dto/order.dto copy';
@@ -23,6 +24,7 @@ export class StrategyService {
 	constructor(
 		@InjectModel(Strategy.name) private strategyModel: Model<StrategyDocument>,
 		private readonly coinService: CoinService,
+		private readonly viemService: ViemService,
 	) {}
 
 	async getStrategyById(strategyId: string): Promise<StrategyDocument | null> {
@@ -71,17 +73,57 @@ export class StrategyService {
 			const decimals = new BigNumber(10).pow(base_coin.decimals);
 			const totalTokens = new BigNumber(dto.totalTokens).times(decimals);
 			const maxSellPrice = new BigNumber(dto.maxSellPrice);
-			const currentPrice = new BigNumber(dto.currentPrice);
+			const minSellPrice = new BigNumber(dto.minSellPrice);
 			const gridCount = new BigNumber(dto.gridCount);
 
+			// Проверяем есть ли у нас базовые монеты на кошельнке
+			const balanceWallet = await this.viemService.getTokenBalance(
+				dto.chain_id,
+				baseCoinAddress.address,
+			);
+
+			if (balanceWallet === new BigNumber(0) || balanceWallet < totalTokens) {
+				// Преобразуем значения в человекочитаемый вид
+				const divisor = new BigNumber(10).pow(base_coin.decimals);
+				const readableBalance = balanceWallet.div(divisor).toFixed(6);
+				const readableRequired = totalTokens.div(divisor).toFixed(4);
+				throw new BadRequestException(
+					`Insufficient funds: available ${readableBalance} tokens, required ${readableRequired} tokens.`,
+				);
+			}
+
 			// 4) Генерация сетки продаж
-			const step = maxSellPrice.minus(currentPrice).div(gridCount);
+			// Новый step: (maxSellPrice - minSellPrice) / (gridCount - 1)
+			const gridCountNum = gridCount.toNumber();
+			const step =
+				gridCountNum > 1
+					? maxSellPrice.minus(minSellPrice).div(gridCount.minus(1))
+					: new BigNumber(0); // если только 1 ордер, step = 0
+
 			const tokensPerGrid = totalTokens.div(gridCount);
 
-			const sellOrders = Array.from({ length: gridCount.toNumber() }, (_, i) => ({
-				price: currentPrice.plus(step.times(i + 1)).toFixed(base_coin.decimals),
-				amount: tokensPerGrid.toFixed(),
-			}));
+			// Равномерное распределение totalTokens по sell_orders:
+			// - Первые (gridCountNum - 1) ордеров получают одинаковое целое количество токенов (округление вниз)
+			// - Последний ордер получает остаток, чтобы сумма была равна totalTokens
+
+			// Целое количество токенов для одного ордера (округление вниз)
+			const tokensPerGridInt = tokensPerGrid.integerValue(BigNumber.ROUND_FLOOR);
+			// Формируем массив sell_orders с ценой и количеством для каждого ордера
+			const sellOrders = Array.from({ length: gridCountNum }, (_, i) => {
+				let amount: string;
+				if (i < gridCountNum - 1) {
+					// Равномерно распределяет токены между одрерами кроме последнего
+					amount = tokensPerGridInt.toFixed();
+				} else {
+					// Для последнего ордера считается сумма всех предыдущих и ордеров и вычетается из общего числа токенов в стратегии.
+					const sumPrev = tokensPerGridInt.times(gridCountNum - 1);
+					amount = totalTokens.minus(sumPrev).toFixed();
+				}
+				return {
+					price: minSellPrice.plus(step.times(i)).toFixed(base_coin.decimals),
+					amount,
+				};
+			});
 
 			// 5) Создаём документ стратегии
 			const newStrategy = new this.strategyModel({

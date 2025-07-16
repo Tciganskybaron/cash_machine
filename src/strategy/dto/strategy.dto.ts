@@ -15,15 +15,15 @@ export class StrategyDto {
 
 	@IsDefined()
 	@IsString()
-	totalTokens: string; // Сколько выделено токенов на торговлю
+	totalTokens: string; // Сколько выделено токенов на торговлю. Указывать в целых токенак к примеру 40.0005 Degen без перевода в wei.
 
 	@IsDefined()
 	@IsString()
-	maxSellPrice: string; // // Максимальная цена продажи
+	maxSellPrice: string; // Максимальная цена продажи
 
 	@IsDefined()
 	@IsString()
-	currentPrice: string; // Текущая цена
+	minSellPrice: string; // Минимальная цена для продажи
 
 	@IsDefined()
 	@IsString()

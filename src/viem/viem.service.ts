@@ -11,6 +11,7 @@ import {
 	SUPPORTED_CHAINS,
 } from './types/viem.interface';
 import { ISendEthParams, ISendTransactionParams } from './types/viem.params';
+import BigNumber from 'bignumber.js';
 
 @Injectable()
 export class ViemService {
@@ -106,5 +107,31 @@ export class ViemService {
 				`🚨 Ошибка при выполнении sendTransaction в сети ${params.chainId}: ${error}`,
 			);
 		}
+	}
+
+	// Получить баланс ERC20 токена для текущего кошелька в указанной сети
+	async getTokenBalance(chainId: ChainId, tokenAddress: string): Promise<BigNumber> {
+		const { publicClient } = this.getClients(chainId);
+		const erc20Abi = [
+			{
+				type: 'function',
+				name: 'balanceOf',
+				stateMutability: 'view',
+				inputs: [{ name: 'account', type: 'address' }],
+				outputs: [{ type: 'uint256' }],
+			},
+		];
+
+		const balance = await publicClient.readContract({
+			address: tokenAddress as `0x${string}`,
+			abi: erc20Abi,
+			functionName: 'balanceOf',
+			args: [this.account.address],
+		});
+
+		const validValue = (n: unknown): n is string | number | bigint =>
+			typeof n === 'string' || typeof n === 'number' || typeof n === 'bigint';
+
+		return validValue(balance) ? new BigNumber(String(balance)) : new BigNumber(0);
 	}
 }
